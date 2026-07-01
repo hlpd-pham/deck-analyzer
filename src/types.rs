@@ -1,0 +1,23 @@
+#[derive(Debug, serde::Deserialize)]
+pub struct ScryfallCard {
+    id: Option<String>,
+    oracle_id: Option<String>,
+    name: Option<String>,
+    printed_name: Option<String>,
+    lang: Option<String>,
+    layout: Option<String>,
+    mana_cost: Option<String>,
+    cmc: Option<f64>,
+    type_line: Option<String>,
+    printed_type_line: Option<String>,
+    oracle_text: Option<String>,
+    power: Option<String>,
+    toughness: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Option<Vec<String>>,
+    keywords: Option<Vec<String>>,
+    set: Option<String>,
+    set_name: Option<String>,
+    collector_number: Option<String>,
+    rarity: Option<String>,
+}
