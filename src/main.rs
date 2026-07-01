@@ -14,7 +14,7 @@ async fn main() -> Result<(), std::io::Error> {
     println!("Parsing file: {}", args.file);
     let file_path = args.file;
 
-    deck_analyzer::read_json_file(&file_path);
+    let _ = deck_analyzer::sync_cards_db(&file_path);
 
     Ok(())
 }
