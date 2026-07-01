@@ -4,7 +4,7 @@ use std::{
 };
 pub mod db;
 pub mod types;
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use types::ScryfallCard;
 
 pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -48,7 +48,56 @@ pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let card: ScryfallCard =
                     serde_json::from_str(&line).expect("Invalid scryfall json");
-                println!("{:?}\n", card)
+
+                conn.execute(
+                    "
+                    INSERT OR IGNORE INTO cards (
+  id,
+  oracle_id,
+  name,
+  type_line,
+  mana_cost,
+  cmc,
+  colors,
+  color_identity,
+  layout,
+  lang,
+  set_code,
+  collector_number,
+  rarity
+)
+VALUES (
+  ?1,
+  ?2,
+  ?3,
+  ?4,
+  ?5,
+  ?6,
+  ?7,
+  ?8,
+  ?9,
+  ?10,
+  ?11,
+  ?12,
+  ?13
+);
+                    ",
+                    params![
+                        card.id,
+                        card.oracle_id,
+                        card.name,
+                        card.type_line,
+                        card.mana_cost,
+                        card.cmc,
+                        "",
+                        "",
+                        card.layout,
+                        card.lang,
+                        card.set,
+                        card.collector_number,
+                        card.rarity,
+                    ],
+                )?;
             }
             Err(e) => {
                 println!("Encounter error: {}", e);
