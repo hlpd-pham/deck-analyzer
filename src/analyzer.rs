@@ -1,7 +1,7 @@
 use crate::decklist::parse_decklist;
 use crate::error::AppError;
 use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub trait CardLookup {
     fn ensure_ready(&self) -> Result<(), AppError>;
@@ -88,14 +88,7 @@ impl<L: CardLookup> Analyzer<L> {
 
             match card_info {
                 Some(card_info) => {
-                    let Some(color_identity) = card_info.color_identity else {
-                        return Err(AppError::StaleCardLookup);
-                    };
-                    if color_identity.is_empty() {
-                        return Err(AppError::StaleCardLookup);
-                    }
-                    let colors: Vec<String> = serde_json::from_str(&color_identity)
-                        .map_err(|_| AppError::StaleCardLookup)?;
+                    let colors = parse_color_identity(card_info.color_identity)?;
                     match colors.as_slice() {
                         [] => color_identity_counts.colorless += deck_entry.quantity,
                         [color] => match color.as_str() {
@@ -171,6 +164,93 @@ impl<L: CardLookup> Analyzer<L> {
             color_identity_counts,
         })
     }
+
+    pub fn validate_commander(
+        &self,
+        deck_text: &str,
+        commander_name: &str,
+    ) -> Result<CommanderValidation, AppError> {
+        self.card_lookup.ensure_ready()?;
+
+        let deck_entries = parse_decklist(deck_text)?;
+        let deck_size = deck_entries
+            .iter()
+            .map(|deck_entry| deck_entry.quantity)
+            .sum::<usize>();
+
+        let commander_info = self.card_lookup.lookup_card(commander_name)?;
+        let commander_found = commander_info.is_some();
+        let commander_colors = match commander_info {
+            Some(card_info) => parse_color_identity(card_info.color_identity)?,
+            None => Vec::new(),
+        };
+
+        let mut quantities: HashMap<String, usize> = HashMap::new();
+        let mut type_lines: HashMap<String, String> = HashMap::new();
+        let mut missing_cards = HashSet::new();
+        let mut missing_card_names = Vec::new();
+        let mut off_color_cards = HashSet::new();
+
+        for deck_entry in deck_entries {
+            let quantity = quantities.entry(deck_entry.card_name.clone()).or_insert(0);
+            *quantity += deck_entry.quantity;
+
+            match self.card_lookup.lookup_card(&deck_entry.card_name)? {
+                Some(card_info) => {
+                    let colors = parse_color_identity(card_info.color_identity)?;
+                    if commander_found {
+                        for color in colors {
+                            if !commander_colors.contains(&color) {
+                                off_color_cards.insert(deck_entry.card_name.clone());
+                            }
+                        }
+                    }
+
+                    type_lines
+                        .entry(deck_entry.card_name)
+                        .or_insert_with(|| card_info.type_line.unwrap_or_default());
+                }
+                None => {
+                    if missing_cards.insert(deck_entry.card_name.clone()) {
+                        missing_card_names.push(deck_entry.card_name);
+                    }
+                }
+            }
+        }
+
+        let mut duplicate_cards = Vec::new();
+        for (card_name, quantity) in quantities {
+            if quantity <= 1 {
+                continue;
+            }
+            let Some(type_line) = type_lines.get(&card_name) else {
+                continue;
+            };
+            if !type_line.contains("Basic Land") {
+                duplicate_cards.push(card_name);
+            }
+        }
+
+        duplicate_cards.sort();
+        let mut off_color_card_names = off_color_cards.into_iter().collect::<Vec<String>>();
+        off_color_card_names.sort();
+
+        let valid = commander_found
+            && deck_size == 99
+            && duplicate_cards.is_empty()
+            && off_color_card_names.is_empty()
+            && missing_card_names.is_empty();
+
+        Ok(CommanderValidation {
+            commander_name: commander_name.to_string(),
+            commander_found,
+            deck_size,
+            duplicate_cards,
+            off_color_cards: off_color_card_names,
+            missing_cards: missing_card_names,
+            valid,
+        })
+    }
 }
 
 pub struct CardInfo {
@@ -187,6 +267,16 @@ pub struct DeckStats {
     pub mana_curve: [usize; 8],
     pub type_counts: TypeCounts,
     pub color_identity_counts: ColorIdentityCounts,
+}
+
+pub struct CommanderValidation {
+    pub commander_name: String,
+    pub commander_found: bool,
+    pub deck_size: usize,
+    pub duplicate_cards: Vec<String>,
+    pub off_color_cards: Vec<String>,
+    pub missing_cards: Vec<String>,
+    pub valid: bool,
 }
 
 #[derive(Default)]
@@ -210,4 +300,15 @@ pub struct ColorIdentityCounts {
     pub green: usize,
     pub colorless: usize,
     pub multicolor: usize,
+}
+
+fn parse_color_identity(color_identity: Option<String>) -> Result<Vec<String>, AppError> {
+    let Some(color_identity) = color_identity else {
+        return Err(AppError::StaleCardLookup);
+    };
+    if color_identity.is_empty() {
+        return Err(AppError::StaleCardLookup);
+    }
+
+    serde_json::from_str(&color_identity).map_err(|_| AppError::StaleCardLookup)
 }
