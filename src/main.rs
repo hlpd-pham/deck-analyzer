@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
-use deck_analyzer::analyzer::{Analyzer, SqliteCardLookup};
+use deck_analyzer::analyzer::{Analyzer, DeckStats, SqliteCardLookup};
 use deck_analyzer::db::{CARD_DB_PATH, sync_cards_db};
 use deck_analyzer::error::AppError;
+use deck_analyzer::source_decks::ArchidektClient;
 use rusqlite::Connection;
 use std::process::ExitCode;
 
@@ -20,6 +21,10 @@ enum Commands {
     Analyze {
         file_path: String,
     },
+    AnalyzeSource {
+        #[command(subcommand)]
+        command: AnalyzeSourceCommands,
+    },
     Validate {
         file_path: String,
 
@@ -29,6 +34,11 @@ enum Commands {
     Sync {
         json_path: String,
     },
+}
+
+#[derive(Subcommand)]
+enum AnalyzeSourceCommands {
+    Archidekt { url: String },
 }
 
 fn main() -> ExitCode {
@@ -48,42 +58,7 @@ fn main() -> ExitCode {
                 let analyzer = Analyzer { card_lookup };
                 match analyzer.analyze_text(&deck_text) {
                     Ok(stats) => {
-                        for card_name in &stats.missing_cards {
-                            println!("Missing card in local database: {card_name}");
-                        }
-
-                        println!("Cards: {}", stats.total_cards);
-                        println!("Lands: {}", stats.lands);
-                        println!("Missing unique cards: {}", stats.missing_cards.len());
-                        println!();
-                        println!("Mana curve:");
-                        for (bucket, count) in stats.mana_curve.iter().enumerate() {
-                            if bucket == 7 {
-                                println!("7+: {count}");
-                            } else {
-                                println!("{bucket}: {count}");
-                            }
-                        }
-                        println!();
-                        println!("Types:");
-                        println!("Creature: {}", stats.type_counts.creature);
-                        println!("Artifact: {}", stats.type_counts.artifact);
-                        println!("Enchantment: {}", stats.type_counts.enchantment);
-                        println!("Instant: {}", stats.type_counts.instant);
-                        println!("Sorcery: {}", stats.type_counts.sorcery);
-                        println!("Planeswalker: {}", stats.type_counts.planeswalker);
-                        println!("Battle: {}", stats.type_counts.battle);
-                        println!("Other: {}", stats.type_counts.other);
-                        println!();
-                        println!("Color identity:");
-                        println!("White: {}", stats.color_identity_counts.white);
-                        println!("Blue: {}", stats.color_identity_counts.blue);
-                        println!("Black: {}", stats.color_identity_counts.black);
-                        println!("Red: {}", stats.color_identity_counts.red);
-                        println!("Green: {}", stats.color_identity_counts.green);
-                        println!("Colorless: {}", stats.color_identity_counts.colorless);
-                        println!("Multicolor: {}", stats.color_identity_counts.multicolor);
-
+                        print_deck_stats(&stats);
                         Ok(())
                     }
                     Err(error) => Err(error),
@@ -91,6 +66,37 @@ fn main() -> ExitCode {
             }
             Err(error) => Err(AppError::Io(error)),
         },
+        Commands::AnalyzeSource { command } => {
+            let source_deck_result = match command {
+                AnalyzeSourceCommands::Archidekt { url } => {
+                    let archidekt = ArchidektClient;
+                    archidekt.load_deck(url)
+                }
+            };
+
+            match source_deck_result {
+                Ok(source_deck) => {
+                    let mut deck_text = String::new();
+                    for card in &source_deck.cards {
+                        deck_text.push_str(&format!("{} {}\n", card.quantity, card.card_name));
+                    }
+
+                    let card_lookup = SqliteCardLookup { conn: &conn };
+                    let analyzer = Analyzer { card_lookup };
+                    match analyzer.analyze_text(&deck_text) {
+                        Ok(stats) => {
+                            println!("Source deck: {} ({})", source_deck.name, source_deck.source);
+                            println!("Source URL: {}", source_deck.source_url);
+                            println!();
+                            print_deck_stats(&stats);
+                            Ok(())
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                Err(error) => Err(error),
+            }
+        }
         Commands::Validate {
             file_path,
             commander,
@@ -175,4 +181,42 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn print_deck_stats(stats: &DeckStats) {
+    for card_name in &stats.missing_cards {
+        println!("Missing card in local database: {card_name}");
+    }
+
+    println!("Cards: {}", stats.total_cards);
+    println!("Lands: {}", stats.lands);
+    println!("Missing unique cards: {}", stats.missing_cards.len());
+    println!();
+    println!("Mana curve:");
+    for (bucket, count) in stats.mana_curve.iter().enumerate() {
+        if bucket == 7 {
+            println!("7+: {count}");
+        } else {
+            println!("{bucket}: {count}");
+        }
+    }
+    println!();
+    println!("Types:");
+    println!("Creature: {}", stats.type_counts.creature);
+    println!("Artifact: {}", stats.type_counts.artifact);
+    println!("Enchantment: {}", stats.type_counts.enchantment);
+    println!("Instant: {}", stats.type_counts.instant);
+    println!("Sorcery: {}", stats.type_counts.sorcery);
+    println!("Planeswalker: {}", stats.type_counts.planeswalker);
+    println!("Battle: {}", stats.type_counts.battle);
+    println!("Other: {}", stats.type_counts.other);
+    println!();
+    println!("Color identity:");
+    println!("White: {}", stats.color_identity_counts.white);
+    println!("Blue: {}", stats.color_identity_counts.blue);
+    println!("Black: {}", stats.color_identity_counts.black);
+    println!("Red: {}", stats.color_identity_counts.red);
+    println!("Green: {}", stats.color_identity_counts.green);
+    println!("Colorless: {}", stats.color_identity_counts.colorless);
+    println!("Multicolor: {}", stats.color_identity_counts.multicolor);
 }

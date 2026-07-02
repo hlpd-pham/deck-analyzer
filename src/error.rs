@@ -5,8 +5,10 @@ pub enum AppError {
     Io(std::io::Error),
     Sqlite(rusqlite::Error),
     Json(serde_json::Error),
+    Http(reqwest::Error),
     InvalidDeckLine { line_number: usize },
     InvalidQuantity { line_number: usize },
+    InvalidSourceDeckFormat(String),
     MissingCardLookup,
     StaleCardLookup,
     CommanderValidationFailed,
@@ -18,12 +20,14 @@ impl fmt::Display for AppError {
             AppError::Io(error) => write!(f, "{error}"),
             AppError::Sqlite(error) => write!(f, "{error}"),
             AppError::Json(error) => write!(f, "{error}"),
+            AppError::Http(error) => write!(f, "{error}"),
             AppError::InvalidDeckLine { line_number } => {
                 write!(f, "line {line_number} is in the wrong format")
             }
             AppError::InvalidQuantity { line_number } => {
                 write!(f, "line {line_number} has an invalid quantity")
             }
+            AppError::InvalidSourceDeckFormat(message) => write!(f, "{message}"),
             AppError::MissingCardLookup => {
                 write!(f, "card_lookup table is missing; run sync before analyze")
             }
@@ -55,5 +59,11 @@ impl From<rusqlite::Error> for AppError {
 impl From<serde_json::Error> for AppError {
     fn from(error: serde_json::Error) -> Self {
         AppError::Json(error)
+    }
+}
+
+impl From<reqwest::Error> for AppError {
+    fn from(error: reqwest::Error) -> Self {
+        AppError::Http(error)
     }
 }
