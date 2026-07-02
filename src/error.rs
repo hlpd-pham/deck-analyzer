@@ -7,6 +7,7 @@ pub enum AppError {
     Json(serde_json::Error),
     InvalidDeckLine { line_number: usize },
     InvalidQuantity { line_number: usize },
+    MissingCardLookup,
 }
 
 impl fmt::Display for AppError {
@@ -20,6 +21,9 @@ impl fmt::Display for AppError {
             }
             AppError::InvalidQuantity { line_number } => {
                 write!(f, "line {line_number} has an invalid quantity")
+            }
+            AppError::MissingCardLookup => {
+                write!(f, "card_lookup table is missing; run sync before analyze")
             }
         }
     }
