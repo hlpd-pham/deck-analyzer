@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
+use deck_analyzer::analyzer::{Analyzer, DeckStats, SqliteCardLookup};
 use deck_analyzer::db::{CARD_DB_PATH, sync_cards_db};
 use deck_analyzer::error::AppError;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::Connection;
+use std::process::ExitCode;
 
 #[derive(Parser)]
 #[command()]
@@ -19,84 +21,71 @@ enum Commands {
     Sync { json_path: String },
 }
 
-fn main() -> Result<(), AppError> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
-    let conn = Connection::open(CARD_DB_PATH)?;
+    let conn = match Connection::open(CARD_DB_PATH) {
+        Ok(conn) => conn,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
 
-    match &cli.command {
+    let result: Result<(), AppError> = match &cli.command {
         Commands::Analyze { file_path } => {
-            analyze_deck(file_path, &conn)?;
+            let card_lookup = SqliteCardLookup::new(&conn);
+            let analyzer = Analyzer::new(card_lookup);
+            match analyzer.analyze_file(file_path) {
+                Ok(stats) => {
+                    print_deck_stats(&stats);
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            }
         }
         Commands::Sync { json_path } => {
             println!(
                 "Syncing file {} with local db (may take a while)",
                 &json_path
             );
-            sync_cards_db(json_path, &conn)?;
+            sync_cards_db(json_path, &conn)
+        }
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            ExitCode::FAILURE
         }
     }
-
-    Ok(())
 }
 
-fn analyze_deck(file_path: &str, conn: &Connection) -> Result<(), AppError> {
-    let deck_text = std::fs::read_to_string(file_path)?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_cards_name_lang ON cards(name, lang)",
-        (),
-    )?;
-
-    let mut total_cards = 0usize;
-    let mut lands = 0usize;
-    let mut missing_cards = 0usize;
-
-    for (line_index, line) in deck_text.lines().enumerate() {
-        let line_number = line_index + 1;
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let Some((quantity_text, card_name)) = line.split_once(' ') else {
-            return Err(AppError::InvalidDeckLine { line_number });
-        };
-
-        let quantity = quantity_text
-            .parse::<usize>()
-            .map_err(|_| AppError::InvalidQuantity { line_number })?;
-        let card_name = card_name.trim();
-
-        total_cards += quantity;
-        let type_line = conn
-            .query_row(
-                "
-                SELECT type_line
-                FROM cards
-                WHERE name = ?1
-                ORDER BY lang = 'en' DESC
-                LIMIT 1
-                ",
-                params![card_name],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-
-        match type_line {
-            Some(type_line) => {
-                if type_line.contains("Land") {
-                    lands += quantity;
-                }
-            }
-            None => {
-                missing_cards += 1;
-                println!("Missing card in local database: {card_name}");
-            }
-        }
+fn print_deck_stats(stats: &DeckStats) {
+    for card_name in &stats.missing_cards {
+        println!("Missing card in local database: {card_name}");
     }
 
-    println!("Cards: {total_cards}");
-    println!("Lands: {lands}");
-    println!("Missing unique cards: {missing_cards}");
-
-    Ok(())
+    println!("Cards: {}", stats.total_cards);
+    println!("Lands: {}", stats.lands);
+    println!("Missing unique cards: {}", stats.missing_cards.len());
+    println!();
+    println!("Mana curve:");
+    for (bucket, count) in stats.mana_curve.iter().enumerate() {
+        if bucket == 7 {
+            println!("7+: {count}");
+        } else {
+            println!("{bucket}: {count}");
+        }
+    }
+    println!();
+    println!("Types:");
+    println!("Creature: {}", stats.type_counts.creature);
+    println!("Artifact: {}", stats.type_counts.artifact);
+    println!("Enchantment: {}", stats.type_counts.enchantment);
+    println!("Instant: {}", stats.type_counts.instant);
+    println!("Sorcery: {}", stats.type_counts.sorcery);
+    println!("Planeswalker: {}", stats.type_counts.planeswalker);
+    println!("Battle: {}", stats.type_counts.battle);
+    println!("Other: {}", stats.type_counts.other);
 }

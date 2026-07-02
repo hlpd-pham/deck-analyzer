@@ -106,7 +106,47 @@ VALUES (
         }
     }
 
+    rebuild_card_lookup(conn)?;
     println!("Inserted {insert_successful} cards");
+
+    Ok(())
+}
+
+pub fn rebuild_card_lookup(conn: &Connection) -> Result<(), AppError> {
+    conn.execute(
+        "
+        CREATE TABLE IF NOT EXISTS card_lookup (
+            name TEXT PRIMARY KEY,
+            type_line TEXT,
+            cmc REAL,
+            mana_cost TEXT
+        )
+        ",
+        (),
+    )?;
+
+    conn.execute("DELETE FROM card_lookup", ())?;
+    let lookup_rows = conn.execute(
+        "
+        INSERT OR IGNORE INTO card_lookup (
+            name,
+            type_line,
+            cmc,
+            mana_cost
+        )
+        SELECT
+            name,
+            type_line,
+            cmc,
+            mana_cost
+        FROM cards
+        WHERE name IS NOT NULL
+        ORDER BY name ASC, lang = 'en' DESC, id ASC
+        ",
+        (),
+    )?;
+
+    println!("Rebuilt {lookup_rows} card lookup rows");
 
     Ok(())
 }
