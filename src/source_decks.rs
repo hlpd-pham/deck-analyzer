@@ -15,6 +15,44 @@ pub struct SourceDeckCard {
     pub category: Option<String>,
 }
 
+pub struct ArchidektDeckSearchQuery {
+    pub commander_name: Option<String>,
+    pub name: Option<String>,
+    pub owner_username: Option<String>,
+    pub deck_format: Option<u8>,
+    pub edh_bracket: Option<u8>,
+    pub order_by: Option<String>,
+    pub page: Option<usize>,
+    pub page_size: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchidektDeckSearchPage {
+    pub count: usize,
+    pub next: Option<String>,
+    pub results: Vec<ArchidektDeckSearchResult>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchidektDeckSearchResult {
+    pub id: usize,
+    pub name: String,
+    pub size: Option<usize>,
+    pub updated_at: Option<String>,
+    pub created_at: Option<String>,
+    pub deck_format: Option<u8>,
+    pub edh_bracket: Option<u8>,
+    pub view_count: Option<usize>,
+    pub owner: ArchidektDeckOwner,
+}
+
+#[derive(Deserialize)]
+pub struct ArchidektDeckOwner {
+    pub username: String,
+}
+
 pub struct ArchidektClient;
 
 impl ArchidektClient {
@@ -34,6 +72,23 @@ impl ArchidektClient {
         };
 
         parse_archidekt_deck(&json_text, url)
+    }
+
+    pub fn search_decks(
+        &self,
+        query: &ArchidektDeckSearchQuery,
+    ) -> Result<ArchidektDeckSearchPage, AppError> {
+        let api_url = self.deck_search_api_url(query)?;
+        let json_text = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .user_agent("deck-analyzer/0.1 local CLI")
+            .build()?
+            .get(&api_url)
+            .send()?
+            .error_for_status()?
+            .text()?;
+
+        parse_archidekt_deck_search(&json_text)
     }
 
     pub fn deck_api_url(&self, url: &str) -> Result<String, AppError> {
@@ -62,6 +117,56 @@ impl ArchidektClient {
         }
 
         Ok(format!("{base_url}/api/decks/{deck_id}/"))
+    }
+
+    pub fn deck_search_api_url(
+        &self,
+        query: &ArchidektDeckSearchQuery,
+    ) -> Result<String, AppError> {
+        let mut url =
+            reqwest::Url::parse("https://archidekt.com/api/decks/v3/").map_err(|error| {
+                AppError::InvalidSourceDeckFormat(format!(
+                    "Archidekt deck search URL is invalid: {error}"
+                ))
+            })?;
+
+        {
+            let mut query_pairs = url.query_pairs_mut();
+            if let Some(commander_name) = query
+                .commander_name
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                query_pairs.append_pair("commanderName", commander_name);
+            }
+            if let Some(name) = query.name.as_deref().filter(|value| !value.is_empty()) {
+                query_pairs.append_pair("name", name);
+            }
+            if let Some(owner_username) = query
+                .owner_username
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                query_pairs.append_pair("ownerUsername", owner_username);
+            }
+            if let Some(deck_format) = query.deck_format {
+                query_pairs.append_pair("deckFormat", &deck_format.to_string());
+            }
+            if let Some(edh_bracket) = query.edh_bracket {
+                query_pairs.append_pair("edhBracket", &edh_bracket.to_string());
+            }
+            if let Some(order_by) = query.order_by.as_deref().filter(|value| !value.is_empty()) {
+                query_pairs.append_pair("orderBy", order_by);
+            }
+            if let Some(page) = query.page {
+                query_pairs.append_pair("page", &page.to_string());
+            }
+            if let Some(page_size) = query.page_size {
+                query_pairs.append_pair("pageSize", &page_size.to_string());
+            }
+        }
+
+        Ok(url.to_string())
     }
 }
 
@@ -119,5 +224,11 @@ pub fn parse_archidekt_deck(json_text: &str, source_url: &str) -> Result<SourceD
         source: "archidekt".to_string(),
         source_url: source_url.to_string(),
         cards,
+    })
+}
+
+pub fn parse_archidekt_deck_search(json_text: &str) -> Result<ArchidektDeckSearchPage, AppError> {
+    serde_json::from_str(json_text).map_err(|error| {
+        AppError::InvalidSourceDeckFormat(format!("Archidekt deck search JSON is invalid: {error}"))
     })
 }
