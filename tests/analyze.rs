@@ -26,17 +26,31 @@ fn create_card_lookup_db(path: &PathBuf) {
             name TEXT PRIMARY KEY,
             type_line TEXT,
             cmc REAL,
-            mana_cost TEXT
+            mana_cost TEXT,
+            color_identity TEXT
         )
         ",
         (),
     )
     .expect("failed to create card_lookup");
 
-    for (name, type_line, cmc, mana_cost) in [
-        ("Command Tower", "Land", 0.0, ""),
-        ("Llanowar Elves", "Creature - Elf Druid", 1.0, "{G}"),
-        ("Solemn Simulacrum", "Artifact Creature - Golem", 4.0, "{4}"),
+    for (name, type_line, cmc, mana_cost, color_identity) in [
+        ("Command Tower", "Land", 0.0, "", "[]"),
+        (
+            "Llanowar Elves",
+            "Creature - Elf Druid",
+            1.0,
+            "{G}",
+            "[\"G\"]",
+        ),
+        (
+            "Solemn Simulacrum",
+            "Artifact Creature - Golem",
+            4.0,
+            "{4}",
+            "[]",
+        ),
+        ("Boros Charm", "Instant", 2.0, "{R}{W}", "[\"R\",\"W\"]"),
     ] {
         conn.execute(
             "
@@ -44,11 +58,12 @@ fn create_card_lookup_db(path: &PathBuf) {
                 name,
                 type_line,
                 cmc,
-                mana_cost
+                mana_cost,
+                color_identity
             )
-            VALUES (?1, ?2, ?3, ?4)
+            VALUES (?1, ?2, ?3, ?4, ?5)
             ",
-            params![name, type_line, cmc, mana_cost],
+            params![name, type_line, cmc, mana_cost, color_identity],
         )
         .expect("failed to insert card lookup row");
     }
@@ -65,6 +80,7 @@ fn analyze_reports_lands_curve_types_and_missing_cards() {
 1 Command Tower
 2 Llanowar Elves
 1 Solemn Simulacrum
+1 Boros Charm
 1 Totally Missing Card
 1 Totally Missing Card
 ",
@@ -87,20 +103,60 @@ fn analyze_reports_lands_curve_types_and_missing_cards() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     for expected in [
         "Missing card in local database: Totally Missing Card",
-        "Cards: 6",
+        "Cards: 7",
         "Lands: 1",
         "Missing unique cards: 1",
         "1: 2",
+        "2: 1",
         "4: 1",
         "Creature: 3",
         "Artifact: 1",
+        "Instant: 1",
         "Other: 0",
+        "Green: 2",
+        "Colorless: 2",
+        "Multicolor: 1",
     ] {
         assert!(
             stdout.contains(expected),
             "expected output to contain {expected:?}; got:\n{stdout}"
         );
     }
+}
+
+#[test]
+fn analyze_fails_when_card_lookup_is_stale() {
+    let dir = temp_dir("stale-lookup");
+    let conn = Connection::open(dir.join("card.sqlite")).expect("failed to open test db");
+    conn.execute(
+        "
+        CREATE TABLE card_lookup (
+            name TEXT PRIMARY KEY,
+            type_line TEXT,
+            cmc REAL,
+            mana_cost TEXT
+        )
+        ",
+        (),
+    )
+    .expect("failed to create stale card_lookup");
+    fs::write(dir.join("deck.txt"), "1 Command Tower\n").expect("failed to write deck file");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_deck-analyzer"))
+        .current_dir(&dir)
+        .arg("analyze")
+        .arg("deck.txt")
+        .output()
+        .expect("failed to run analyzer");
+
+    assert!(!output.status.success(), "analyzer unexpectedly succeeded");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr
+            .contains("card_lookup table is missing color identity data; run sync before analyze"),
+        "expected stale lookup error; got:\n{stderr}"
+    );
 }
 
 #[test]

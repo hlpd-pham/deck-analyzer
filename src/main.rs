@@ -23,7 +23,7 @@ enum Commands {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let conn = match Connection::open(CARD_DB_PATH) {
+    let mut conn = match Connection::open(CARD_DB_PATH) {
         Ok(conn) => conn,
         Err(error) => {
             eprintln!("Error: {error}");
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
                 "Syncing file {} with local db (may take a while)",
                 &json_path
             );
-            sync_cards_db(json_path, &conn)
+            sync_cards_db(json_path, &mut conn)
         }
     };
 
@@ -88,4 +88,13 @@ fn print_deck_stats(stats: &DeckStats) {
     println!("Planeswalker: {}", stats.type_counts.planeswalker);
     println!("Battle: {}", stats.type_counts.battle);
     println!("Other: {}", stats.type_counts.other);
+    println!();
+    println!("Color identity:");
+    println!("White: {}", stats.color_identity_counts.white);
+    println!("Blue: {}", stats.color_identity_counts.blue);
+    println!("Black: {}", stats.color_identity_counts.black);
+    println!("Red: {}", stats.color_identity_counts.red);
+    println!("Green: {}", stats.color_identity_counts.green);
+    println!("Colorless: {}", stats.color_identity_counts.colorless);
+    println!("Multicolor: {}", stats.color_identity_counts.multicolor);
 }

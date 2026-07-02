@@ -8,6 +8,7 @@ pub enum AppError {
     InvalidDeckLine { line_number: usize },
     InvalidQuantity { line_number: usize },
     MissingCardLookup,
+    StaleCardLookup,
 }
 
 impl fmt::Display for AppError {
@@ -24,6 +25,12 @@ impl fmt::Display for AppError {
             }
             AppError::MissingCardLookup => {
                 write!(f, "card_lookup table is missing; run sync before analyze")
+            }
+            AppError::StaleCardLookup => {
+                write!(
+                    f,
+                    "card_lookup table is missing color identity data; run sync before analyze"
+                )
             }
         }
     }

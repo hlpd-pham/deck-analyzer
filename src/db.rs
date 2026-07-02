@@ -8,12 +8,14 @@ use std::{
 
 pub const CARD_DB_PATH: &str = "card.sqlite";
 
-pub fn sync_cards_db(path: &str, conn: &Connection) -> Result<(), AppError> {
+pub fn sync_cards_db(path: &str, conn: &mut Connection) -> Result<(), AppError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut insert_successful = 0;
 
-    conn.execute(
+    let tx = conn.transaction()?;
+
+    tx.execute(
         "
         CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY,
@@ -34,7 +36,7 @@ pub fn sync_cards_db(path: &str, conn: &Connection) -> Result<(), AppError> {
         (),
     )?;
 
-    conn.execute(
+    tx.execute(
         "CREATE INDEX IF NOT EXISTS idx_cards_name_lang ON cards(name, lang)",
         (),
     )?;
@@ -47,9 +49,18 @@ pub fn sync_cards_db(path: &str, conn: &Connection) -> Result<(), AppError> {
                 }
                 let card: ScryfallCard = serde_json::from_str(&line)?;
 
-                match conn.execute(
+                let colors = match &card.colors {
+                    Some(colors) => serde_json::to_string(colors)?,
+                    None => "[]".to_string(),
+                };
+                let color_identity = match &card.color_identity {
+                    Some(color_identity) => serde_json::to_string(color_identity)?,
+                    None => "[]".to_string(),
+                };
+
+                match tx.execute(
                     "
-                    INSERT OR IGNORE INTO cards (
+                    INSERT INTO cards (
   id,
   oracle_id,
   name,
@@ -78,7 +89,20 @@ VALUES (
   ?11,
   ?12,
   ?13
-);
+)
+ON CONFLICT(id) DO UPDATE SET
+  oracle_id = excluded.oracle_id,
+  name = excluded.name,
+  type_line = excluded.type_line,
+  mana_cost = excluded.mana_cost,
+  cmc = excluded.cmc,
+  colors = excluded.colors,
+  color_identity = excluded.color_identity,
+  layout = excluded.layout,
+  lang = excluded.lang,
+  set_code = excluded.set_code,
+  collector_number = excluded.collector_number,
+  rarity = excluded.rarity;
                     ",
                     params![
                         card.id,
@@ -87,8 +111,8 @@ VALUES (
                         card.type_line,
                         card.mana_cost,
                         card.cmc,
-                        "",
-                        "",
+                        colors,
+                        color_identity,
                         card.layout,
                         card.lang,
                         card.set,
@@ -106,39 +130,44 @@ VALUES (
         }
     }
 
-    rebuild_card_lookup(conn)?;
+    rebuild_card_lookup(&tx)?;
+    tx.commit()?;
     println!("Inserted {insert_successful} cards");
 
     Ok(())
 }
 
 pub fn rebuild_card_lookup(conn: &Connection) -> Result<(), AppError> {
+    conn.execute("DROP TABLE IF EXISTS card_lookup", ())?;
+
     conn.execute(
         "
-        CREATE TABLE IF NOT EXISTS card_lookup (
+        CREATE TABLE card_lookup (
             name TEXT PRIMARY KEY,
             type_line TEXT,
             cmc REAL,
-            mana_cost TEXT
+            mana_cost TEXT,
+            color_identity TEXT
         )
         ",
         (),
     )?;
 
-    conn.execute("DELETE FROM card_lookup", ())?;
     let lookup_rows = conn.execute(
         "
         INSERT OR IGNORE INTO card_lookup (
             name,
             type_line,
             cmc,
-            mana_cost
+            mana_cost,
+            color_identity
         )
         SELECT
             name,
             type_line,
             cmc,
-            mana_cost
+            mana_cost,
+            color_identity
         FROM cards
         WHERE name IS NOT NULL
         ORDER BY name ASC, lang = 'en' DESC, id ASC
