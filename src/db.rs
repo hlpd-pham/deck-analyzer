@@ -1,5 +1,5 @@
 use crate::types::ScryfallCard;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -8,10 +8,9 @@ use std::{
 pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(path).expect(&format!("cannot read_json_file: {}", path));
     let reader = BufReader::new(file);
-    let mut line_index = 0;
     let mut insert_successful = 0;
 
-    let conn = Connection::open("card.sqlite")?;
+    let conn = open_cards_db()?;
 
     let _ = conn.execute(
         "
@@ -35,7 +34,6 @@ pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     for line_result in reader.lines() {
-        line_index += 1;
         match line_result {
             Ok(line) => {
                 if line.len() < 1 {
@@ -95,7 +93,7 @@ VALUES (
                 ) {
                     Ok(_) => insert_successful += 1,
                     Err(e) => {
-                        println!("Encounter error while inserting {:?}", &card)
+                        println!("Encounter error while inserting {:?}: {}", &card, e)
                     }
                 }
             }
@@ -108,4 +106,26 @@ VALUES (
     println!("Inserted {insert_successful} cards");
 
     Ok(())
+}
+
+pub fn open_cards_db() -> Result<Connection, rusqlite::Error> {
+    Connection::open("card.sqlite")
+}
+
+pub fn find_card_type_line(
+    conn: &Connection,
+    card_name: &str,
+) -> Result<Option<String>, rusqlite::Error> {
+    conn.query_row(
+        "
+            SELECT type_line
+            FROM cards
+            WHERE name = ?1
+            ORDER BY lang = 'en' DESC
+            LIMIT 1
+            ",
+        params![card_name],
+        |row| row.get(0),
+    )
+    .optional()
 }
