@@ -1,3 +1,4 @@
+use crate::decklist::parse_decklist;
 use crate::error::AppError;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashSet;
@@ -8,13 +9,7 @@ pub trait CardLookup {
 }
 
 pub struct SqliteCardLookup<'a> {
-    conn: &'a Connection,
-}
-
-impl<'a> SqliteCardLookup<'a> {
-    pub fn new(conn: &'a Connection) -> Self {
-        Self { conn }
-    }
+    pub conn: &'a Connection,
 }
 
 impl CardLookup for SqliteCardLookup<'_> {
@@ -33,6 +28,19 @@ impl CardLookup for SqliteCardLookup<'_> {
             return Err(AppError::MissingCardLookup);
         }
 
+        let color_identity_column_exists: i64 = self.conn.query_row(
+            "
+            SELECT COUNT(*)
+            FROM pragma_table_info('card_lookup')
+            WHERE name = 'color_identity'
+            ",
+            (),
+            |row| row.get(0),
+        )?;
+        if color_identity_column_exists == 0 {
+            return Err(AppError::StaleCardLookup);
+        }
+
         Ok(())
     }
 
@@ -41,7 +49,7 @@ impl CardLookup for SqliteCardLookup<'_> {
             .conn
             .query_row(
                 "
-                SELECT type_line, cmc
+                SELECT type_line, cmc, color_identity
                 FROM card_lookup
                 WHERE name = ?1
                 ",
@@ -50,6 +58,7 @@ impl CardLookup for SqliteCardLookup<'_> {
                     Ok(CardInfo {
                         type_line: row.get(0)?,
                         cmc: row.get(1)?,
+                        color_identity: row.get(2)?,
                     })
                 },
             )
@@ -58,19 +67,10 @@ impl CardLookup for SqliteCardLookup<'_> {
 }
 
 pub struct Analyzer<L> {
-    card_lookup: L,
+    pub card_lookup: L,
 }
 
 impl<L: CardLookup> Analyzer<L> {
-    pub fn new(card_lookup: L) -> Self {
-        Self { card_lookup }
-    }
-
-    pub fn analyze_file(&self, file_path: &str) -> Result<DeckStats, AppError> {
-        let deck_text = std::fs::read_to_string(file_path)?;
-        self.analyze_text(&deck_text)
-    }
-
     pub fn analyze_text(&self, deck_text: &str) -> Result<DeckStats, AppError> {
         self.card_lookup.ensure_ready()?;
 
@@ -80,40 +80,83 @@ impl<L: CardLookup> Analyzer<L> {
         let mut missing_card_names = Vec::new();
         let mut mana_curve = [0usize; 8];
         let mut type_counts = TypeCounts::default();
+        let mut color_identity_counts = ColorIdentityCounts::default();
 
-        for (line_index, line) in deck_text.lines().enumerate() {
-            let line_number = line_index + 1;
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            let Some((quantity_text, card_name)) = line.split_once(' ') else {
-                return Err(AppError::InvalidDeckLine { line_number });
-            };
-
-            let quantity = quantity_text
-                .parse::<usize>()
-                .map_err(|_| AppError::InvalidQuantity { line_number })?;
-            let card_name = card_name.trim();
-
-            total_cards += quantity;
-            let card_info = self.card_lookup.lookup_card(card_name)?;
+        for deck_entry in parse_decklist(deck_text)? {
+            total_cards += deck_entry.quantity;
+            let card_info = self.card_lookup.lookup_card(&deck_entry.card_name)?;
 
             match card_info {
                 Some(card_info) => {
+                    let Some(color_identity) = card_info.color_identity else {
+                        return Err(AppError::StaleCardLookup);
+                    };
+                    if color_identity.is_empty() {
+                        return Err(AppError::StaleCardLookup);
+                    }
+                    let colors: Vec<String> = serde_json::from_str(&color_identity)
+                        .map_err(|_| AppError::StaleCardLookup)?;
+                    match colors.as_slice() {
+                        [] => color_identity_counts.colorless += deck_entry.quantity,
+                        [color] => match color.as_str() {
+                            "W" => color_identity_counts.white += deck_entry.quantity,
+                            "U" => color_identity_counts.blue += deck_entry.quantity,
+                            "B" => color_identity_counts.black += deck_entry.quantity,
+                            "R" => color_identity_counts.red += deck_entry.quantity,
+                            "G" => color_identity_counts.green += deck_entry.quantity,
+                            _ => return Err(AppError::StaleCardLookup),
+                        },
+                        _ => color_identity_counts.multicolor += deck_entry.quantity,
+                    }
+
                     let type_line = card_info.type_line.unwrap_or_default();
                     if type_line.contains("Land") {
-                        lands += quantity;
+                        lands += deck_entry.quantity;
                     } else {
-                        let bucket = mana_curve_bucket(card_info.cmc);
-                        mana_curve[bucket] += quantity;
-                        type_counts.add(&type_line, quantity);
+                        let bucket = match card_info.cmc {
+                            Some(cmc) if cmc >= 7.0 => 7,
+                            Some(cmc) if cmc >= 0.0 => cmc.floor() as usize,
+                            _ => 0,
+                        };
+                        mana_curve[bucket] += deck_entry.quantity;
+
+                        let mut matched = false;
+                        if type_line.contains("Creature") {
+                            type_counts.creature += deck_entry.quantity;
+                            matched = true;
+                        }
+                        if type_line.contains("Artifact") {
+                            type_counts.artifact += deck_entry.quantity;
+                            matched = true;
+                        }
+                        if type_line.contains("Enchantment") {
+                            type_counts.enchantment += deck_entry.quantity;
+                            matched = true;
+                        }
+                        if type_line.contains("Instant") {
+                            type_counts.instant += deck_entry.quantity;
+                            matched = true;
+                        }
+                        if type_line.contains("Sorcery") {
+                            type_counts.sorcery += deck_entry.quantity;
+                            matched = true;
+                        }
+                        if type_line.contains("Planeswalker") {
+                            type_counts.planeswalker += deck_entry.quantity;
+                            matched = true;
+                        }
+                        if type_line.contains("Battle") {
+                            type_counts.battle += deck_entry.quantity;
+                            matched = true;
+                        }
+                        if !matched {
+                            type_counts.other += deck_entry.quantity;
+                        }
                     }
                 }
                 None => {
-                    if missing_cards.insert(card_name.to_string()) {
-                        missing_card_names.push(card_name.to_string());
+                    if missing_cards.insert(deck_entry.card_name.clone()) {
+                        missing_card_names.push(deck_entry.card_name);
                     }
                 }
             }
@@ -125,6 +168,7 @@ impl<L: CardLookup> Analyzer<L> {
             missing_cards: missing_card_names,
             mana_curve,
             type_counts,
+            color_identity_counts,
         })
     }
 }
@@ -132,6 +176,7 @@ impl<L: CardLookup> Analyzer<L> {
 pub struct CardInfo {
     pub type_line: Option<String>,
     pub cmc: Option<f64>,
+    pub color_identity: Option<String>,
 }
 
 #[derive(Default)]
@@ -141,6 +186,7 @@ pub struct DeckStats {
     pub missing_cards: Vec<String>,
     pub mana_curve: [usize; 8],
     pub type_counts: TypeCounts,
+    pub color_identity_counts: ColorIdentityCounts,
 }
 
 #[derive(Default)]
@@ -155,47 +201,13 @@ pub struct TypeCounts {
     pub other: usize,
 }
 
-impl TypeCounts {
-    fn add(&mut self, type_line: &str, quantity: usize) {
-        let mut matched = false;
-        if type_line.contains("Creature") {
-            self.creature += quantity;
-            matched = true;
-        }
-        if type_line.contains("Artifact") {
-            self.artifact += quantity;
-            matched = true;
-        }
-        if type_line.contains("Enchantment") {
-            self.enchantment += quantity;
-            matched = true;
-        }
-        if type_line.contains("Instant") {
-            self.instant += quantity;
-            matched = true;
-        }
-        if type_line.contains("Sorcery") {
-            self.sorcery += quantity;
-            matched = true;
-        }
-        if type_line.contains("Planeswalker") {
-            self.planeswalker += quantity;
-            matched = true;
-        }
-        if type_line.contains("Battle") {
-            self.battle += quantity;
-            matched = true;
-        }
-        if !matched {
-            self.other += quantity;
-        }
-    }
-}
-
-fn mana_curve_bucket(cmc: Option<f64>) -> usize {
-    match cmc {
-        Some(cmc) if cmc >= 7.0 => 7,
-        Some(cmc) if cmc >= 0.0 => cmc.floor() as usize,
-        _ => 0,
-    }
+#[derive(Default)]
+pub struct ColorIdentityCounts {
+    pub white: usize,
+    pub blue: usize,
+    pub black: usize,
+    pub red: usize,
+    pub green: usize,
+    pub colorless: usize,
+    pub multicolor: usize,
 }
