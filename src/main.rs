@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
-use deck_analyzer::db::{find_card_type_line, open_cards_db, sync_cards_db};
+use deck_analyzer::db::{CARD_DB_PATH, sync_cards_db};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::io::{Error, ErrorKind};
 
 #[derive(Parser)]
@@ -40,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn analyze_deck(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let deck_text = std::fs::read_to_string(file_path)?;
-    let conn = open_cards_db()?;
+    let conn = Connection::open(CARD_DB_PATH)?;
 
     let mut total_cards = 0usize;
     let mut lands = 0usize;
@@ -71,7 +72,21 @@ fn analyze_deck(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
 
         total_cards += quantity;
 
-        match find_card_type_line(&conn, card_name)? {
+        let type_line = conn
+            .query_row(
+                "
+                SELECT type_line
+                FROM cards
+                WHERE name = ?1
+                ORDER BY lang = 'en' DESC
+                LIMIT 1
+                ",
+                params![card_name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        match type_line {
             Some(type_line) => {
                 if type_line.contains("Land") {
                     lands += quantity;
