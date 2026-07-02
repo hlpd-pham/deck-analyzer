@@ -19,29 +19,32 @@ enum Commands {
     Sync { json_path: String },
 }
 
-#[tokio::main]
-async fn main() -> Result<(), AppError> {
+fn main() -> Result<(), AppError> {
     let cli = Cli::parse();
+    let conn = Connection::open(CARD_DB_PATH)?;
 
     match &cli.command {
         Commands::Analyze { file_path } => {
-            analyze_deck(file_path)?;
+            analyze_deck(file_path, &conn)?;
         }
         Commands::Sync { json_path } => {
             println!(
                 "Syncing file {} with local db (may take a while)",
                 &json_path
             );
-            sync_cards_db(json_path)?;
+            sync_cards_db(json_path, &conn)?;
         }
     }
 
     Ok(())
 }
 
-fn analyze_deck(file_path: &str) -> Result<(), AppError> {
+fn analyze_deck(file_path: &str, conn: &Connection) -> Result<(), AppError> {
     let deck_text = std::fs::read_to_string(file_path)?;
-    let conn = Connection::open(CARD_DB_PATH)?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cards_name_lang ON cards(name, lang)",
+        (),
+    )?;
 
     let mut total_cards = 0usize;
     let mut lands = 0usize;
@@ -64,7 +67,6 @@ fn analyze_deck(file_path: &str) -> Result<(), AppError> {
         let card_name = card_name.trim();
 
         total_cards += quantity;
-
         let type_line = conn
             .query_row(
                 "

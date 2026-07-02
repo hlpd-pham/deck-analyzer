@@ -8,14 +8,12 @@ use std::{
 
 pub const CARD_DB_PATH: &str = "card.sqlite";
 
-pub fn sync_cards_db(path: &str) -> Result<(), AppError> {
+pub fn sync_cards_db(path: &str, conn: &Connection) -> Result<(), AppError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut insert_successful = 0;
 
-    let conn = Connection::open(CARD_DB_PATH)?;
-
-    let _ = conn.execute(
+    conn.execute(
         "
         CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY,
@@ -34,7 +32,12 @@ pub fn sync_cards_db(path: &str) -> Result<(), AppError> {
 )
         ",
         (),
-    );
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cards_name_lang ON cards(name, lang)",
+        (),
+    )?;
 
     for line_result in reader.lines() {
         match line_result {
