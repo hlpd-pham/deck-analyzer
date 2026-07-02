@@ -175,6 +175,7 @@ impl<L: CardLookup> Analyzer<L> {
         let deck_entries = parse_decklist(deck_text)?;
         let deck_size = deck_entries
             .iter()
+            .filter(|deck_entry| deck_entry.card_name != commander_name)
             .map(|deck_entry| deck_entry.quantity)
             .sum::<usize>();
 
@@ -191,7 +192,10 @@ impl<L: CardLookup> Analyzer<L> {
         let mut missing_card_names = Vec::new();
         let mut off_color_cards = HashSet::new();
 
-        for deck_entry in deck_entries {
+        for deck_entry in deck_entries
+            .iter()
+            .filter(|deck_entry| deck_entry.card_name != commander_name)
+        {
             let quantity = quantities.entry(deck_entry.card_name.clone()).or_insert(0);
             *quantity += deck_entry.quantity;
 
@@ -207,12 +211,12 @@ impl<L: CardLookup> Analyzer<L> {
                     }
 
                     type_lines
-                        .entry(deck_entry.card_name)
+                        .entry(deck_entry.card_name.clone())
                         .or_insert_with(|| card_info.type_line.unwrap_or_default());
                 }
                 None => {
                     if missing_cards.insert(deck_entry.card_name.clone()) {
-                        missing_card_names.push(deck_entry.card_name);
+                        missing_card_names.push(deck_entry.card_name.clone());
                     }
                 }
             }

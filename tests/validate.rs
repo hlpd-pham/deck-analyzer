@@ -73,6 +73,7 @@ fn validate_prints_checklist_for_valid_deck() {
     fs::write(
         dir.join("deck.txt"),
         "\
+1 Ezuri, Renegade Leader
 97 Forest
 1 Sol Ring
 1 Llanowar Elves

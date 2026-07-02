@@ -50,6 +50,7 @@ fn validates_valid_commander_deck_with_basic_land_duplicates() {
     let validation = analyzer
         .validate_commander(
             "
+1 Ezuri, Renegade Leader
 97 Forest
 1 Sol Ring
 1 Llanowar Elves
@@ -72,7 +73,13 @@ fn invalidates_wrong_deck_size() {
         card_lookup: TestLookup,
     };
     let validation = analyzer
-        .validate_commander("1 Forest\n", "Ezuri, Renegade Leader")
+        .validate_commander(
+            "
+1 Ezuri, Renegade Leader
+1 Forest
+",
+            "Ezuri, Renegade Leader",
+        )
         .expect("validation should run");
 
     assert!(!validation.valid);
@@ -87,6 +94,7 @@ fn invalidates_duplicate_non_basic_cards() {
     let validation = analyzer
         .validate_commander(
             "
+1 Ezuri, Renegade Leader
 97 Forest
 2 Sol Ring
 ",
@@ -107,6 +115,7 @@ fn invalidates_off_color_cards() {
     let validation = analyzer
         .validate_commander(
             "
+1 Ezuri, Renegade Leader
 97 Forest
 1 Sol Ring
 1 Lightning Bolt
@@ -125,11 +134,19 @@ fn invalidates_missing_commander() {
         card_lookup: TestLookup,
     };
     let validation = analyzer
-        .validate_commander("99 Forest\n", "Missing Commander")
+        .validate_commander(
+            "
+1 Missing Commander
+99 Forest
+",
+            "Missing Commander",
+        )
         .expect("validation should run");
 
     assert!(!validation.valid);
     assert!(!validation.commander_found);
+    assert_eq!(validation.deck_size, 99);
+    assert!(validation.missing_cards.is_empty());
 }
 
 #[test]
@@ -140,6 +157,7 @@ fn invalidates_missing_deck_cards() {
     let validation = analyzer
         .validate_commander(
             "
+1 Ezuri, Renegade Leader
 98 Forest
 1 Missing Card
 ",
