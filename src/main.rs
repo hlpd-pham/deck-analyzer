@@ -22,36 +22,43 @@ enum Commands {
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
+    let cli = Cli::parse();
+    let conn = match Connection::open(CARD_DB_PATH) {
+        Ok(conn) => conn,
         Err(error) => {
             eprintln!("Error: {error}");
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
-    }
-}
+    };
 
-fn run() -> Result<(), AppError> {
-    let cli = Cli::parse();
-    let conn = Connection::open(CARD_DB_PATH)?;
-
-    match &cli.command {
+    let result: Result<(), AppError> = match &cli.command {
         Commands::Analyze { file_path } => {
             let card_lookup = SqliteCardLookup::new(&conn);
             let analyzer = Analyzer::new(card_lookup);
-            let stats = analyzer.analyze_file(file_path)?;
-            print_deck_stats(&stats);
+            match analyzer.analyze_file(file_path) {
+                Ok(stats) => {
+                    print_deck_stats(&stats);
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            }
         }
         Commands::Sync { json_path } => {
             println!(
                 "Syncing file {} with local db (may take a while)",
                 &json_path
             );
-            sync_cards_db(json_path, &conn)?;
+            sync_cards_db(json_path, &conn)
+        }
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            ExitCode::FAILURE
         }
     }
-
-    Ok(())
 }
 
 fn print_deck_stats(stats: &DeckStats) {
