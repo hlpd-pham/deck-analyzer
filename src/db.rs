@@ -8,12 +8,10 @@ use std::{
 
 pub const CARD_DB_PATH: &str = "card.sqlite";
 
-pub fn sync_cards_db(path: &str) -> Result<(), AppError> {
+pub fn sync_cards_db(path: &str, conn: &Connection) -> Result<(), AppError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut insert_successful = 0;
-
-    let conn = Connection::open(CARD_DB_PATH)?;
 
     conn.execute(
         "
