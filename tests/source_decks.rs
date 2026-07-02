@@ -140,6 +140,11 @@ fn analyzes_archidekt_source_without_persisting_deck() {
         "1: 3",
         "Creature: 2",
         "Artifact: 1",
+        "Roles:",
+        "Ramp: 3",
+        "Warnings:",
+        "Mana base may be light: 0 lands found",
+        "Card draw package looks light: 0 draw cards found",
     ] {
         assert!(
             stdout.contains(expected),
