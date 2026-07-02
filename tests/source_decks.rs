@@ -199,8 +199,8 @@ fn analyzes_archidekt_source_without_persisting_deck() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_deck-analyzer"))
         .current_dir(&dir)
-        .arg("analyze-source")
         .arg("archidekt")
+        .arg("analyze")
         .arg(file_url(&fixture_path))
         .output()
         .expect("failed to run archidekt source analysis");

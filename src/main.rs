@@ -25,10 +25,6 @@ enum Commands {
     Analyze {
         file_path: String,
     },
-    AnalyzeSource {
-        #[command(subcommand)]
-        command: AnalyzeSourceCommands,
-    },
     Validate {
         file_path: String,
 
@@ -41,12 +37,10 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
-enum AnalyzeSourceCommands {
-    Archidekt { url: String },
-}
-
-#[derive(Subcommand)]
 enum ArchidektCommands {
+    Analyze {
+        url: String,
+    },
     ListDecks {
         #[arg(long)]
         commander_name: Option<String>,
@@ -82,6 +76,41 @@ fn main() -> ExitCode {
 
     if let Commands::Archidekt { command } = &cli.command {
         let result: Result<(), AppError> = match command {
+            ArchidektCommands::Analyze { url } => {
+                let conn = match Connection::open(CARD_DB_PATH) {
+                    Ok(conn) => conn,
+                    Err(error) => {
+                        eprintln!("Error: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                let archidekt = ArchidektClient;
+                match archidekt.load_deck(url) {
+                    Ok(source_deck) => {
+                        let mut deck_text = String::new();
+                        for card in &source_deck.cards {
+                            deck_text.push_str(&format!("{} {}\n", card.quantity, card.card_name));
+                        }
+
+                        let card_lookup = SqliteCardLookup { conn: &conn };
+                        let analyzer = Analyzer { card_lookup };
+                        match analyzer.analyze_text(&deck_text) {
+                            Ok(stats) => {
+                                println!(
+                                    "Source deck: {} ({})",
+                                    source_deck.name, source_deck.source
+                                );
+                                println!("Source URL: {}", source_deck.source_url);
+                                println!();
+                                print_deck_stats(&stats);
+                                Ok(())
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
+                    Err(error) => Err(error),
+                }
+            }
             ArchidektCommands::ListDecks {
                 commander_name,
                 name,
@@ -206,37 +235,6 @@ fn main() -> ExitCode {
             }
             Err(error) => Err(AppError::Io(error)),
         },
-        Commands::AnalyzeSource { command } => {
-            let source_deck_result = match command {
-                AnalyzeSourceCommands::Archidekt { url } => {
-                    let archidekt = ArchidektClient;
-                    archidekt.load_deck(url)
-                }
-            };
-
-            match source_deck_result {
-                Ok(source_deck) => {
-                    let mut deck_text = String::new();
-                    for card in &source_deck.cards {
-                        deck_text.push_str(&format!("{} {}\n", card.quantity, card.card_name));
-                    }
-
-                    let card_lookup = SqliteCardLookup { conn: &conn };
-                    let analyzer = Analyzer { card_lookup };
-                    match analyzer.analyze_text(&deck_text) {
-                        Ok(stats) => {
-                            println!("Source deck: {} ({})", source_deck.name, source_deck.source);
-                            println!("Source URL: {}", source_deck.source_url);
-                            println!();
-                            print_deck_stats(&stats);
-                            Ok(())
-                        }
-                        Err(error) => Err(error),
-                    }
-                }
-                Err(error) => Err(error),
-            }
-        }
         Commands::Validate {
             file_path,
             commander,
