@@ -20,4 +20,10 @@ pub struct ScryfallCard {
     pub set_name: Option<String>,
     pub collector_number: Option<String>,
     pub rarity: Option<String>,
+    pub prices: Option<ScryfallPrices>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ScryfallPrices {
+    pub usd: Option<String>,
 }

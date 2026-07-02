@@ -30,11 +30,25 @@ pub fn sync_cards_db(path: &str, conn: &mut Connection) -> Result<(), AppError> 
   lang TEXT,
   set_code TEXT,
   collector_number TEXT,
-  rarity TEXT
+  rarity TEXT,
+  price_usd TEXT
 )
         ",
         (),
     )?;
+
+    let price_usd_column_exists: i64 = tx.query_row(
+        "
+        SELECT COUNT(*)
+        FROM pragma_table_info('cards')
+        WHERE name = 'price_usd'
+        ",
+        (),
+        |row| row.get(0),
+    )?;
+    if price_usd_column_exists == 0 {
+        tx.execute("ALTER TABLE cards ADD COLUMN price_usd TEXT", ())?;
+    }
 
     tx.execute(
         "CREATE INDEX IF NOT EXISTS idx_cards_name_lang ON cards(name, lang)",
@@ -57,6 +71,10 @@ pub fn sync_cards_db(path: &str, conn: &mut Connection) -> Result<(), AppError> 
                     Some(color_identity) => serde_json::to_string(color_identity)?,
                     None => "[]".to_string(),
                 };
+                let price_usd = match &card.prices {
+                    Some(prices) => prices.usd.clone(),
+                    None => None,
+                };
 
                 match tx.execute(
                     "
@@ -73,7 +91,8 @@ pub fn sync_cards_db(path: &str, conn: &mut Connection) -> Result<(), AppError> 
   lang,
   set_code,
   collector_number,
-  rarity
+  rarity,
+  price_usd
 )
 VALUES (
   ?1,
@@ -88,7 +107,8 @@ VALUES (
   ?10,
   ?11,
   ?12,
-  ?13
+  ?13,
+  ?14
 )
 ON CONFLICT(id) DO UPDATE SET
   oracle_id = excluded.oracle_id,
@@ -102,7 +122,8 @@ ON CONFLICT(id) DO UPDATE SET
   lang = excluded.lang,
   set_code = excluded.set_code,
   collector_number = excluded.collector_number,
-  rarity = excluded.rarity;
+  rarity = excluded.rarity,
+  price_usd = excluded.price_usd;
                     ",
                     params![
                         card.id,
@@ -118,6 +139,7 @@ ON CONFLICT(id) DO UPDATE SET
                         card.set,
                         card.collector_number,
                         card.rarity,
+                        price_usd,
                     ],
                 ) {
                     Ok(_) => insert_successful += 1,
@@ -139,7 +161,8 @@ ON CONFLICT(id) DO UPDATE SET
             type_line TEXT,
             cmc REAL,
             mana_cost TEXT,
-            color_identity TEXT
+            color_identity TEXT,
+            price_usd TEXT
         )
         ",
         (),
@@ -152,14 +175,16 @@ ON CONFLICT(id) DO UPDATE SET
             type_line,
             cmc,
             mana_cost,
-            color_identity
+            color_identity,
+            price_usd
         )
         SELECT
             name,
             type_line,
             cmc,
             mana_cost,
-            color_identity
+            color_identity,
+            price_usd
         FROM cards
         WHERE name IS NOT NULL
         ORDER BY name ASC, lang = 'en' DESC, id ASC

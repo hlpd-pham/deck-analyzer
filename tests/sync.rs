@@ -19,7 +19,7 @@ fn sync_upserts_color_fields_and_rebuilds_lookup() {
     let jsonl_path = dir.join("cards.jsonl");
     fs::write(
         &jsonl_path,
-        r#"{"id":"card-1","name":"Llanowar Elves","lang":"en","layout":"normal","mana_cost":"{G}","cmc":1.0,"type_line":"Creature - Elf Druid","colors":["G"],"color_identity":["G"],"set":"lea","collector_number":"1","rarity":"common"}"#,
+        r#"{"id":"card-1","name":"Llanowar Elves","lang":"en","layout":"normal","mana_cost":"{G}","cmc":1.0,"type_line":"Creature - Elf Druid","colors":["G"],"color_identity":["G"],"set":"lea","collector_number":"1","rarity":"common","prices":{"usd":"0.25"}}"#,
     )
     .expect("failed to write jsonl");
 
@@ -68,22 +68,24 @@ fn sync_upserts_color_fields_and_rebuilds_lookup() {
     )
     .expect("sync should succeed");
 
-    let (colors, color_identity): (String, String) = conn
+    let (colors, color_identity, price_usd): (String, String, String) = conn
         .query_row(
-            "SELECT colors, color_identity FROM cards WHERE id = 'card-1'",
+            "SELECT colors, color_identity, price_usd FROM cards WHERE id = 'card-1'",
             (),
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("failed to query cards row");
     assert_eq!(colors, "[\"G\"]");
     assert_eq!(color_identity, "[\"G\"]");
+    assert_eq!(price_usd, "0.25");
 
-    let lookup_color_identity: String = conn
+    let (lookup_color_identity, lookup_price_usd): (String, String) = conn
         .query_row(
-            "SELECT color_identity FROM card_lookup WHERE name = 'Llanowar Elves'",
+            "SELECT color_identity, price_usd FROM card_lookup WHERE name = 'Llanowar Elves'",
             (),
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("failed to query card lookup row");
     assert_eq!(lookup_color_identity, "[\"G\"]");
+    assert_eq!(lookup_price_usd, "0.25");
 }

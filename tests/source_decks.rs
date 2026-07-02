@@ -140,6 +140,7 @@ fn analyzes_archidekt_source_without_persisting_deck() {
         "1: 3",
         "Creature: 2",
         "Artifact: 1",
+        "Estimated price: price unavailable",
         "Roles:",
         "Ramp: 3",
         "Warnings:",
@@ -165,4 +166,96 @@ fn analyzes_archidekt_source_without_persisting_deck() {
         )
         .expect("failed to query sqlite schema");
     assert_eq!(decks_table_count, 0);
+}
+
+#[test]
+fn analyzes_source_with_estimated_price_when_local_prices_exist() {
+    let dir = temp_dir("priced");
+    let conn = Connection::open(dir.join("card.sqlite")).expect("failed to open db");
+    conn.execute(
+        "
+        CREATE TABLE card_lookup (
+            name TEXT PRIMARY KEY,
+            type_line TEXT,
+            cmc REAL,
+            mana_cost TEXT,
+            color_identity TEXT,
+            price_usd TEXT
+        )
+        ",
+        (),
+    )
+    .expect("failed to create priced card_lookup");
+
+    for (name, type_line, cmc, mana_cost, color_identity, price_usd) in [
+        ("Forest", "Basic Land - Forest", 0.0, "", "[\"G\"]", "0.10"),
+        ("Sol Ring", "Artifact", 1.0, "{1}", "[]", "1.50"),
+    ] {
+        conn.execute(
+            "
+            INSERT INTO card_lookup (
+                name,
+                type_line,
+                cmc,
+                mana_cost,
+                color_identity,
+                price_usd
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+            params![name, type_line, cmc, mana_cost, color_identity, price_usd],
+        )
+        .expect("failed to insert priced card_lookup row");
+    }
+
+    let fixture_path = dir.join("priced_archidekt.json");
+    fs::write(
+        &fixture_path,
+        r#"
+        {
+            "name": "Priced Archidekt Fixture",
+            "cards": [
+                {
+                    "quantity": 2,
+                    "categories": ["Lands"],
+                    "card": {
+                        "oracleCard": {
+                            "name": "Forest"
+                        }
+                    }
+                },
+                {
+                    "quantity": 1,
+                    "categories": ["Ramp"],
+                    "card": {
+                        "oracleCard": {
+                            "name": "Sol Ring"
+                        }
+                    }
+                }
+            ]
+        }
+        "#,
+    )
+    .expect("failed to write priced archidekt fixture");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_deck-analyzer"))
+        .current_dir(&dir)
+        .arg("analyze-source")
+        .arg("archidekt")
+        .arg(file_url(&fixture_path))
+        .output()
+        .expect("failed to run priced archidekt source analysis");
+
+    assert!(
+        output.status.success(),
+        "analysis failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Estimated price: $1.70"),
+        "expected estimated price; got:\n{stdout}"
+    );
 }

@@ -2,7 +2,9 @@ use clap::{Parser, Subcommand};
 use deck_analyzer::analyzer::{Analyzer, DeckStats, SqliteCardLookup};
 use deck_analyzer::db::{CARD_DB_PATH, sync_cards_db};
 use deck_analyzer::error::AppError;
-use deck_analyzer::source_decks::{ArchidektClient, evaluate_source_deck};
+use deck_analyzer::source_decks::{
+    ArchidektClient, estimate_source_deck_price, evaluate_source_deck,
+};
 use rusqlite::Connection;
 use std::process::ExitCode;
 
@@ -90,25 +92,38 @@ fn main() -> ExitCode {
                             println!();
                             print_deck_stats(&stats);
                             println!();
-                            let quality = evaluate_source_deck(&source_deck, &stats);
-                            println!("Roles:");
-                            println!("Ramp: {}", quality.role_counts.ramp);
-                            println!("Draw: {}", quality.role_counts.draw);
-                            println!("Removal: {}", quality.role_counts.removal);
-                            println!("Wipes: {}", quality.role_counts.wipes);
-                            println!("Tutors: {}", quality.role_counts.tutors);
-                            println!("Protection: {}", quality.role_counts.protection);
-                            println!("Win conditions: {}", quality.role_counts.win_conditions);
-                            println!();
-                            println!("Warnings:");
-                            if quality.warnings.is_empty() {
-                                println!("None");
-                            } else {
-                                for warning in &quality.warnings {
-                                    println!("- {warning}");
+                            match estimate_source_deck_price(&conn, &source_deck) {
+                                Ok(estimated_price) => {
+                                    match estimated_price {
+                                        Some(price) => println!("Estimated price: ${price:.2}"),
+                                        None => println!("Estimated price: price unavailable"),
+                                    }
+                                    println!();
+                                    let quality = evaluate_source_deck(&source_deck, &stats);
+                                    println!("Roles:");
+                                    println!("Ramp: {}", quality.role_counts.ramp);
+                                    println!("Draw: {}", quality.role_counts.draw);
+                                    println!("Removal: {}", quality.role_counts.removal);
+                                    println!("Wipes: {}", quality.role_counts.wipes);
+                                    println!("Tutors: {}", quality.role_counts.tutors);
+                                    println!("Protection: {}", quality.role_counts.protection);
+                                    println!(
+                                        "Win conditions: {}",
+                                        quality.role_counts.win_conditions
+                                    );
+                                    println!();
+                                    println!("Warnings:");
+                                    if quality.warnings.is_empty() {
+                                        println!("None");
+                                    } else {
+                                        for warning in &quality.warnings {
+                                            println!("- {warning}");
+                                        }
+                                    }
+                                    Ok(())
                                 }
+                                Err(error) => Err(error),
                             }
-                            Ok(())
                         }
                         Err(error) => Err(error),
                     }

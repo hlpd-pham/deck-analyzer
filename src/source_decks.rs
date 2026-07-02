@@ -1,5 +1,6 @@
 use crate::analyzer::DeckStats;
 use crate::error::AppError;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -312,4 +313,47 @@ pub fn evaluate_source_deck(source_deck: &SourceDeck, stats: &DeckStats) -> Sour
         role_counts,
         warnings,
     }
+}
+
+pub fn estimate_source_deck_price(
+    conn: &Connection,
+    source_deck: &SourceDeck,
+) -> Result<Option<f64>, AppError> {
+    let price_usd_column_exists: i64 = conn.query_row(
+        "
+        SELECT COUNT(*)
+        FROM pragma_table_info('card_lookup')
+        WHERE name = 'price_usd'
+        ",
+        (),
+        |row| row.get(0),
+    )?;
+    if price_usd_column_exists == 0 {
+        return Ok(None);
+    }
+
+    let mut total = 0.0;
+    for card in &source_deck.cards {
+        let price_usd = conn
+            .query_row(
+                "
+                SELECT price_usd
+                FROM card_lookup
+                WHERE name = ?1
+                ",
+                params![&card.card_name],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?;
+
+        let Some(Some(price_usd)) = price_usd else {
+            return Ok(None);
+        };
+        let Ok(price) = price_usd.parse::<f64>() else {
+            return Ok(None);
+        };
+        total += price * card.quantity as f64;
+    }
+
+    Ok(Some(total))
 }
