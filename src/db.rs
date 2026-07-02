@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use crate::types::ScryfallCard;
 use rusqlite::{Connection, params};
 use std::{
@@ -5,13 +6,14 @@ use std::{
     io::{BufRead, BufReader},
 };
 
-pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let file = File::open(path).expect(&format!("cannot read_json_file: {}", path));
+pub const CARD_DB_PATH: &str = "card.sqlite";
+
+pub fn sync_cards_db(path: &str) -> Result<(), AppError> {
+    let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let mut line_index = 0;
     let mut insert_successful = 0;
 
-    let conn = Connection::open("card.sqlite")?;
+    let conn = Connection::open(CARD_DB_PATH)?;
 
     let _ = conn.execute(
         "
@@ -35,14 +37,12 @@ pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     for line_result in reader.lines() {
-        line_index += 1;
         match line_result {
             Ok(line) => {
-                if line.len() < 1 {
+                if line.is_empty() {
                     continue;
                 }
-                let card: ScryfallCard =
-                    serde_json::from_str(&line).expect("Invalid scryfall json");
+                let card: ScryfallCard = serde_json::from_str(&line)?;
 
                 match conn.execute(
                     "
@@ -95,13 +95,11 @@ VALUES (
                 ) {
                     Ok(_) => insert_successful += 1,
                     Err(e) => {
-                        println!("Encounter error while inserting {:?}", &card)
+                        println!("Encounter error while inserting {:?}: {}", &card, e)
                     }
                 }
             }
-            Err(e) => {
-                println!("Encounter error: {}", e);
-            }
+            Err(e) => return Err(AppError::Io(e)),
         }
     }
 
