@@ -15,7 +15,7 @@ pub fn sync_cards_db(path: &str) -> Result<(), AppError> {
 
     let conn = Connection::open(CARD_DB_PATH)?;
 
-    let _ = conn.execute(
+    conn.execute(
         "
         CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY,
@@ -34,7 +34,12 @@ pub fn sync_cards_db(path: &str) -> Result<(), AppError> {
 )
         ",
         (),
-    );
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cards_name_lang ON cards(name, lang)",
+        (),
+    )?;
 
     for line_result in reader.lines() {
         match line_result {

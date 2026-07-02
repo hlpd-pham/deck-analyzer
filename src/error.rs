@@ -5,6 +5,7 @@ pub enum AppError {
     Io(std::io::Error),
     Sqlite(rusqlite::Error),
     Json(serde_json::Error),
+    Join(tokio::task::JoinError),
     InvalidDeckLine { line_number: usize },
     InvalidQuantity { line_number: usize },
 }
@@ -15,6 +16,7 @@ impl fmt::Display for AppError {
             AppError::Io(error) => write!(f, "{error}"),
             AppError::Sqlite(error) => write!(f, "{error}"),
             AppError::Json(error) => write!(f, "{error}"),
+            AppError::Join(error) => write!(f, "{error}"),
             AppError::InvalidDeckLine { line_number } => {
                 write!(f, "line {line_number} is in the wrong format")
             }
@@ -42,5 +44,11 @@ impl From<rusqlite::Error> for AppError {
 impl From<serde_json::Error> for AppError {
     fn from(error: serde_json::Error) -> Self {
         AppError::Json(error)
+    }
+}
+
+impl From<tokio::task::JoinError> for AppError {
+    fn from(error: tokio::task::JoinError) -> Self {
+        AppError::Join(error)
     }
 }

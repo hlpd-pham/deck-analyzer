@@ -25,7 +25,7 @@ async fn main() -> Result<(), AppError> {
 
     match &cli.command {
         Commands::Analyze { file_path } => {
-            analyze_deck(file_path)?;
+            analyze_deck(file_path).await?;
         }
         Commands::Sync { json_path } => {
             println!(
@@ -39,13 +39,16 @@ async fn main() -> Result<(), AppError> {
     Ok(())
 }
 
-fn analyze_deck(file_path: &str) -> Result<(), AppError> {
+async fn analyze_deck(file_path: &str) -> Result<(), AppError> {
     let deck_text = std::fs::read_to_string(file_path)?;
     let conn = Connection::open(CARD_DB_PATH)?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cards_name_lang ON cards(name, lang)",
+        (),
+    )?;
 
     let mut total_cards = 0usize;
-    let mut lands = 0usize;
-    let mut missing_cards = 0usize;
+    let mut deck_entries = Vec::new();
 
     for (line_index, line) in deck_text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -64,21 +67,35 @@ fn analyze_deck(file_path: &str) -> Result<(), AppError> {
         let card_name = card_name.trim();
 
         total_cards += quantity;
+        deck_entries.push((card_name.to_string(), quantity));
+    }
 
-        let type_line = conn
-            .query_row(
-                "
+    let mut lookup_tasks = Vec::new();
+    for (card_name, quantity) in deck_entries {
+        lookup_tasks.push(tokio::task::spawn_blocking(move || {
+            let conn = Connection::open(CARD_DB_PATH)?;
+            let type_line = conn
+                .query_row(
+                    "
                 SELECT type_line
                 FROM cards
                 WHERE name = ?1
                 ORDER BY lang = 'en' DESC
                 LIMIT 1
                 ",
-                params![card_name],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
+                    params![card_name],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
 
+            Ok::<_, AppError>((card_name, quantity, type_line))
+        }));
+    }
+
+    let mut lands = 0usize;
+    let mut missing_cards = 0usize;
+    for lookup_task in lookup_tasks {
+        let (card_name, quantity, type_line) = lookup_task.await??;
         match type_line {
             Some(type_line) => {
                 if type_line.contains("Land") {
