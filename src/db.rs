@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use crate::types::ScryfallCard;
 use rusqlite::{Connection, params};
 use std::{
@@ -7,7 +8,7 @@ use std::{
 
 pub const CARD_DB_PATH: &str = "card.sqlite";
 
-pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn sync_cards_db(path: &str) -> Result<(), AppError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut insert_successful = 0;
@@ -41,8 +42,7 @@ pub fn sync_cards_db(path: &str) -> Result<(), Box<dyn std::error::Error>> {
                 if line.is_empty() {
                     continue;
                 }
-                let card: ScryfallCard =
-                    serde_json::from_str(&line).expect("Invalid scryfall json");
+                let card: ScryfallCard = serde_json::from_str(&line)?;
 
                 match conn.execute(
                     "
@@ -99,9 +99,7 @@ VALUES (
                     }
                 }
             }
-            Err(e) => {
-                println!("Encounter error: {}", e);
-            }
+            Err(e) => return Err(AppError::Io(e)),
         }
     }
 

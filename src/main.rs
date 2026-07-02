@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use deck_analyzer::db::{CARD_DB_PATH, sync_cards_db};
+use deck_analyzer::error::AppError;
 use rusqlite::{Connection, OptionalExtension, params};
-use std::io::{Error, ErrorKind};
 
 #[derive(Parser)]
 #[command()]
@@ -20,7 +20,7 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), AppError> {
     let cli = Cli::parse();
 
     match &cli.command {
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn analyze_deck(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn analyze_deck(file_path: &str) -> Result<(), AppError> {
     let deck_text = std::fs::read_to_string(file_path)?;
     let conn = Connection::open(CARD_DB_PATH)?;
 
@@ -55,19 +55,12 @@ fn analyze_deck(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let Some((quantity_text, card_name)) = line.split_once(' ') else {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                format!("line {line_number} is in the wrong format"),
-            )
-            .into());
+            return Err(AppError::InvalidDeckLine { line_number });
         };
 
-        let quantity = quantity_text.parse::<usize>().map_err(|_| {
-            Error::new(
-                ErrorKind::InvalidData,
-                format!("line {line_number} has an invalid quantity"),
-            )
-        })?;
+        let quantity = quantity_text
+            .parse::<usize>()
+            .map_err(|_| AppError::InvalidQuantity { line_number })?;
         let card_name = card_name.trim();
 
         total_cards += quantity;
