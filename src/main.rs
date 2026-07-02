@@ -17,8 +17,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Analyze { file_path: String },
-    Sync { json_path: String },
+    Analyze {
+        file_path: String,
+    },
+    Validate {
+        file_path: String,
+
+        #[arg(short, long)]
+        commander: String,
+    },
+    Sync {
+        json_path: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -75,6 +85,74 @@ fn main() -> ExitCode {
                         println!("Multicolor: {}", stats.color_identity_counts.multicolor);
 
                         Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(AppError::Io(error)),
+        },
+        Commands::Validate {
+            file_path,
+            commander,
+        } => match std::fs::read_to_string(file_path) {
+            Ok(deck_text) => {
+                let card_lookup = SqliteCardLookup { conn: &conn };
+                let analyzer = Analyzer { card_lookup };
+                match analyzer.validate_commander(&deck_text, commander) {
+                    Ok(validation) => {
+                        println!("Commander validation:");
+                        if validation.commander_found {
+                            println!("PASS commander: {} found", validation.commander_name);
+                        } else {
+                            println!(
+                                "FAIL commander: {} not found in local database",
+                                validation.commander_name
+                            );
+                        }
+
+                        if validation.deck_size == 99 {
+                            println!("PASS deck size: 99 main-deck cards");
+                        } else {
+                            println!(
+                                "FAIL deck size: {} main-deck cards, expected 99",
+                                validation.deck_size
+                            );
+                        }
+
+                        if validation.duplicate_cards.is_empty() {
+                            println!("PASS singleton: no duplicate non-basic cards");
+                        } else {
+                            println!(
+                                "FAIL singleton: duplicate non-basic cards: {}",
+                                validation.duplicate_cards.join(", ")
+                            );
+                        }
+
+                        if !validation.commander_found {
+                            println!("FAIL color identity: commander not found");
+                        } else if validation.off_color_cards.is_empty() {
+                            println!("PASS color identity: all found cards are legal");
+                        } else {
+                            println!(
+                                "FAIL color identity: off-color cards: {}",
+                                validation.off_color_cards.join(", ")
+                            );
+                        }
+
+                        if validation.missing_cards.is_empty() {
+                            println!("PASS missing cards: none");
+                        } else {
+                            println!(
+                                "FAIL missing cards: {}",
+                                validation.missing_cards.join(", ")
+                            );
+                        }
+
+                        if validation.valid {
+                            Ok(())
+                        } else {
+                            Err(AppError::CommanderValidationFailed)
+                        }
                     }
                     Err(error) => Err(error),
                 }

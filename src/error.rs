@@ -9,6 +9,7 @@ pub enum AppError {
     InvalidQuantity { line_number: usize },
     MissingCardLookup,
     StaleCardLookup,
+    CommanderValidationFailed,
 }
 
 impl fmt::Display for AppError {
@@ -32,6 +33,7 @@ impl fmt::Display for AppError {
                     "card_lookup table is missing color identity data; run sync before analyze"
                 )
             }
+            AppError::CommanderValidationFailed => write!(f, "commander validation failed"),
         }
     }
 }
