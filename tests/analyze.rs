@@ -18,8 +18,10 @@ fn temp_dir(name: &str) -> PathBuf {
     path
 }
 
-fn create_card_lookup_db(path: &PathBuf) {
-    let conn = Connection::open(path.join("card.sqlite")).expect("failed to open test db");
+#[test]
+fn analyze_reports_lands_curve_types_and_missing_cards() {
+    let dir = temp_dir("stats");
+    let conn = Connection::open(dir.join("card.sqlite")).expect("failed to open test db");
     conn.execute(
         "
         CREATE TABLE card_lookup (
@@ -67,12 +69,7 @@ fn create_card_lookup_db(path: &PathBuf) {
         )
         .expect("failed to insert card lookup row");
     }
-}
 
-#[test]
-fn analyze_reports_lands_curve_types_and_missing_cards() {
-    let dir = temp_dir("stats");
-    create_card_lookup_db(&dir);
     let deck_path = dir.join("deck.txt");
     fs::write(
         &deck_path,

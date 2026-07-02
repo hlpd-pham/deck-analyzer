@@ -130,17 +130,9 @@ ON CONFLICT(id) DO UPDATE SET
         }
     }
 
-    rebuild_card_lookup(&tx)?;
-    tx.commit()?;
-    println!("Inserted {insert_successful} cards");
+    tx.execute("DROP TABLE IF EXISTS card_lookup", ())?;
 
-    Ok(())
-}
-
-pub fn rebuild_card_lookup(conn: &Connection) -> Result<(), AppError> {
-    conn.execute("DROP TABLE IF EXISTS card_lookup", ())?;
-
-    conn.execute(
+    tx.execute(
         "
         CREATE TABLE card_lookup (
             name TEXT PRIMARY KEY,
@@ -153,7 +145,7 @@ pub fn rebuild_card_lookup(conn: &Connection) -> Result<(), AppError> {
         (),
     )?;
 
-    let lookup_rows = conn.execute(
+    let lookup_rows = tx.execute(
         "
         INSERT OR IGNORE INTO card_lookup (
             name,
@@ -176,6 +168,8 @@ pub fn rebuild_card_lookup(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     println!("Rebuilt {lookup_rows} card lookup rows");
+    tx.commit()?;
+    println!("Inserted {insert_successful} cards");
 
     Ok(())
 }
