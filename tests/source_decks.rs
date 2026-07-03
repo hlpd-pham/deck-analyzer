@@ -4,7 +4,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use deck_analyzer::source_decks::{
-    ArchidektClient, ArchidektDeckSearchQuery, format_moxfield_export_line,
+    ArchidektClient, ArchidektDeckSearchQuery, format_moxfield_export_line, parse_archidekt_deck,
     parse_archidekt_deck_search,
 };
 use deck_analyzer::types::CardRole;
@@ -324,6 +324,35 @@ fn parses_archidekt_deck_search_results() {
     assert_eq!(deck.edh_bracket, Some(4));
     assert_eq!(deck.size, Some(100));
     assert_eq!(deck.view_count, Some(42));
+}
+
+#[test]
+fn parses_archidekt_deck_card_categories() {
+    let source_deck = parse_archidekt_deck(
+        r#"
+        {
+            "name": "Archidekt Fixture",
+            "cards": [
+                {
+                    "quantity": 1,
+                    "categories": ["Tokens"],
+                    "card": {
+                        "oracleCard": {
+                            "name": "Soldier Token"
+                        }
+                    }
+                }
+            ]
+        }
+        "#,
+        "file://archidekt.json",
+    )
+    .expect("deck JSON should parse");
+
+    assert_eq!(source_deck.cards.len(), 1);
+    assert_eq!(source_deck.cards[0].card_name, "Soldier Token");
+    assert_eq!(source_deck.cards[0].categories, ["Tokens"]);
+    assert!(source_deck.cards[0].is_token());
 }
 
 #[test]

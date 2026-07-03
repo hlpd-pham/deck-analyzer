@@ -318,6 +318,9 @@ fn main() -> ExitCode {
                             decks_fetched += 1;
                             let mut deck_card_names = HashSet::new();
                             for card in source_deck.cards {
+                                if card.is_token() {
+                                    continue;
+                                }
                                 deck_card_names.insert(card.card_name);
                             }
                             for card_name in deck_card_names {

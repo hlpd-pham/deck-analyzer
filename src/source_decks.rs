@@ -13,7 +13,15 @@ pub struct SourceDeck {
 pub struct SourceDeckCard {
     pub card_name: String,
     pub quantity: usize,
-    pub category: Option<String>,
+    pub categories: Vec<String>,
+}
+
+impl SourceDeckCard {
+    pub fn is_token(&self) -> bool {
+        self.categories.iter().any(|category| {
+            category.eq_ignore_ascii_case("token") || category.eq_ignore_ascii_case("tokens")
+        })
+    }
 }
 
 pub struct ArchidektDeckSearchQuery {
@@ -203,14 +211,10 @@ pub fn parse_archidekt_deck(json_text: &str, source_url: &str) -> Result<SourceD
 
     let mut cards = Vec::new();
     for card in response.cards {
-        let category = card
-            .categories
-            .and_then(|categories| categories.into_iter().next());
-
         cards.push(SourceDeckCard {
             card_name: card.card.oracle_card.name,
             quantity: card.quantity,
-            category,
+            categories: card.categories.unwrap_or_default(),
         });
     }
 
