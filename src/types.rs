@@ -2,8 +2,8 @@
 pub enum CardRole {
     Ramp,
     CardDraw,
-    TargetedRemoval,
-    BoardWipe,
+    Removal,
+    MassRemoval,
     Tutor,
     Protection,
     WinCondition,
@@ -14,8 +14,8 @@ impl CardRole {
         match self {
             CardRole::Ramp => "ramp",
             CardRole::CardDraw => "card_draw",
-            CardRole::TargetedRemoval => "targeted_removal",
-            CardRole::BoardWipe => "board_wipe",
+            CardRole::Removal => "removal",
+            CardRole::MassRemoval => "mass_removal",
             CardRole::Tutor => "tutor",
             CardRole::Protection => "protection",
             CardRole::WinCondition => "win_condition",
@@ -26,8 +26,8 @@ impl CardRole {
         match value {
             "ramp" => Some(CardRole::Ramp),
             "card_draw" => Some(CardRole::CardDraw),
-            "targeted_removal" => Some(CardRole::TargetedRemoval),
-            "board_wipe" => Some(CardRole::BoardWipe),
+            "removal" | "targeted_removal" => Some(CardRole::Removal),
+            "mass_removal" | "board_wipe" => Some(CardRole::MassRemoval),
             "tutor" => Some(CardRole::Tutor),
             "protection" => Some(CardRole::Protection),
             "win_condition" => Some(CardRole::WinCondition),

@@ -108,8 +108,8 @@ fn sync_upserts_color_fields_and_rebuilds_lookup() {
     for (name, role) in [
         ("Llanowar Elves", "ramp"),
         ("Divination", "card_draw"),
-        ("Swords to Plowshares", "targeted_removal"),
-        ("Wrath of God", "board_wipe"),
+        ("Swords to Plowshares", "removal"),
+        ("Wrath of God", "mass_removal"),
         ("Demonic Tutor", "tutor"),
         ("Heroic Intervention", "protection"),
         ("Thassa's Oracle", "win_condition"),

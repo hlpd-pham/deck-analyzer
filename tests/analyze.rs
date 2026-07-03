@@ -144,7 +144,7 @@ fn analyze_reports_lands_curve_types_and_missing_cards() {
         "Colorless: 2",
         "Multicolor: 1",
         "Ramp: 3",
-        "Targeted removal: 1",
+        "Removal: 1",
         "Protection: 1",
     ] {
         assert!(

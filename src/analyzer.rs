@@ -146,10 +146,10 @@ impl<L: CardLookup> Analyzer<L> {
                         match role {
                             CardRole::Ramp => role_counts.ramp += deck_entry.quantity,
                             CardRole::CardDraw => role_counts.card_draw += deck_entry.quantity,
-                            CardRole::TargetedRemoval => {
-                                role_counts.targeted_removal += deck_entry.quantity
+                            CardRole::Removal => role_counts.removal += deck_entry.quantity,
+                            CardRole::MassRemoval => {
+                                role_counts.mass_removal += deck_entry.quantity
                             }
-                            CardRole::BoardWipe => role_counts.board_wipe += deck_entry.quantity,
                             CardRole::Tutor => role_counts.tutor += deck_entry.quantity,
                             CardRole::Protection => role_counts.protection += deck_entry.quantity,
                             CardRole::WinCondition => {
@@ -369,8 +369,8 @@ pub struct ColorIdentityCounts {
 pub struct RoleCounts {
     pub ramp: usize,
     pub card_draw: usize,
-    pub targeted_removal: usize,
-    pub board_wipe: usize,
+    pub removal: usize,
+    pub mass_removal: usize,
     pub tutor: usize,
     pub protection: usize,
     pub win_condition: usize,

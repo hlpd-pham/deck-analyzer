@@ -4,8 +4,10 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use deck_analyzer::source_decks::{
-    ArchidektClient, ArchidektDeckSearchQuery, parse_archidekt_deck_search,
+    ArchidektClient, ArchidektDeckSearchQuery, format_moxfield_export_line,
+    parse_archidekt_deck_search,
 };
+use deck_analyzer::types::CardRole;
 use rusqlite::{Connection, params};
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -242,6 +244,33 @@ fn archidekt_export_unique_cards_rejects_zero_top_count() {
     assert!(
         stderr.contains("Archidekt export top count must be greater than 0"),
         "expected command to reject zero top count; got:\n{stderr}"
+    );
+}
+
+#[test]
+fn formats_moxfield_export_lines_with_sorted_tags() {
+    let line = format_moxfield_export_line(
+        "Swords to Plowshares",
+        &[CardRole::Ramp, CardRole::Removal, CardRole::CardDraw],
+    );
+    assert_eq!(line, "1 Swords to Plowshares #!card_draw #!ramp #!removal");
+}
+
+#[test]
+fn formats_moxfield_export_lines_without_tags() {
+    let line = format_moxfield_export_line("Command Tower", &[]);
+    assert_eq!(line, "1 Command Tower");
+}
+
+#[test]
+fn parses_legacy_role_strings() {
+    assert_eq!(
+        CardRole::from_db_value("targeted_removal"),
+        Some(CardRole::Removal)
+    );
+    assert_eq!(
+        CardRole::from_db_value("board_wipe"),
+        Some(CardRole::MassRemoval)
     );
 }
 

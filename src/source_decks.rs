@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::types::CardRole;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -231,4 +232,16 @@ pub fn parse_archidekt_deck_search(json_text: &str) -> Result<ArchidektDeckSearc
     serde_json::from_str(json_text).map_err(|error| {
         AppError::InvalidSourceDeckFormat(format!("Archidekt deck search JSON is invalid: {error}"))
     })
+}
+
+pub fn format_moxfield_export_line(card_name: &str, roles: &[CardRole]) -> String {
+    let mut line = format!("1 {card_name}");
+    let mut sorted_roles = roles.to_vec();
+    sorted_roles.sort_by_key(|role| role.as_str());
+    sorted_roles.dedup();
+    for role in sorted_roles {
+        line.push_str(" #!");
+        line.push_str(role.as_str());
+    }
+    line
 }

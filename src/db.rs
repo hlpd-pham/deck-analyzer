@@ -319,7 +319,7 @@ fn roles_for_card(
         || text.contains("each creature gets -")
         || text.contains("damage to each creature")
     {
-        roles.push(CardRole::BoardWipe);
+        roles.push(CardRole::MassRemoval);
     }
 
     let has_target = text.contains("target ");
@@ -331,7 +331,7 @@ fn roles_for_card(
             || text.contains("target opponent sacrifices")
             || text.contains("target player sacrifices"))
     {
-        roles.push(CardRole::TargetedRemoval);
+        roles.push(CardRole::Removal);
     }
 
     let searches_nonland_card = text.contains("nonland card")
