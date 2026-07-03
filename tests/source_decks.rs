@@ -204,6 +204,8 @@ fn archidekt_export_unique_cards_accepts_short_options() {
         .arg("viewCount")
         .arg("-r")
         .arg("asc")
+        .arg("-t")
+        .arg("100")
         .arg("-l")
         .arg("0")
         .output()
@@ -218,6 +220,28 @@ fn archidekt_export_unique_cards_accepts_short_options() {
     assert!(
         stderr.contains("Archidekt export limit must be greater than 0"),
         "expected command to parse short options and fail on limit validation; got:\n{stderr}"
+    );
+}
+
+#[test]
+fn archidekt_export_unique_cards_rejects_zero_top_count() {
+    let output = Command::new(env!("CARGO_BIN_EXE_deck-analyzer"))
+        .arg("archidekt")
+        .arg("export-unique-cards")
+        .arg("--top")
+        .arg("0")
+        .output()
+        .expect("failed to run archidekt unique card export");
+
+    assert!(
+        !output.status.success(),
+        "unique card export unexpectedly succeeded"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Archidekt export top count must be greater than 0"),
+        "expected command to reject zero top count; got:\n{stderr}"
     );
 }
 
