@@ -64,7 +64,11 @@ enum ArchidektCommands {
         #[arg(long)]
         edh_bracket: Option<u8>,
 
-        #[arg(long, default_value = "-updatedAt")]
+        #[arg(
+            long,
+            default_value = "-updatedAt",
+            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Prefix with '-' for descending, for example -updatedAt."
+        )]
         order_by: String,
 
         #[arg(long, default_value_t = 1)]
@@ -92,7 +96,11 @@ enum ArchidektCommands {
         #[arg(long)]
         edh_bracket: Option<u8>,
 
-        #[arg(long, default_value = "-updatedAt")]
+        #[arg(
+            long,
+            default_value = "-updatedAt",
+            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Prefix with '-' for descending, for example -updatedAt."
+        )]
         order_by: String,
 
         #[arg(long, default_value_t = 1)]
