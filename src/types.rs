@@ -10,6 +10,10 @@ pub enum CardRole {
 }
 
 impl CardRole {
+    pub fn known_values() -> &'static str {
+        "ramp, card_draw, removal, mass_removal, tutor, protection, win_condition"
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             CardRole::Ramp => "ramp",
@@ -33,6 +37,19 @@ impl CardRole {
             "win_condition" => Some(CardRole::WinCondition),
             _ => None,
         }
+    }
+}
+
+impl std::str::FromStr for CardRole {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        CardRole::from_db_value(value).ok_or_else(|| {
+            format!(
+                "unknown card role {value}; expected one of: {}",
+                CardRole::known_values()
+            )
+        })
     }
 }
 

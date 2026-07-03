@@ -209,6 +209,8 @@ fn archidekt_export_unique_cards_accepts_short_options() {
         .arg("-t")
         .arg("100")
         .arg("-y")
+        .arg("-R")
+        .arg("card_draw")
         .arg("-l")
         .arg("0")
         .output()
@@ -272,6 +274,7 @@ fn formats_moxfield_export_lines_without_tags() {
 
 #[test]
 fn parses_legacy_role_strings() {
+    assert_eq!("card_draw".parse::<CardRole>(), Ok(CardRole::CardDraw));
     assert_eq!(
         CardRole::from_db_value("targeted_removal"),
         Some(CardRole::Removal)

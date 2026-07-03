@@ -96,6 +96,13 @@ enum ArchidektCommands {
         top: Option<usize>,
 
         #[arg(
+            short = 'R',
+            long,
+            long_help = "Only export cards with this local role. Known values: ramp, card_draw, removal, mass_removal, tutor, protection, win_condition."
+        )]
+        role: Option<CardRole>,
+
+        #[arg(
             short = 'y',
             long = "pbcopy",
             long_help = "Copy the generated export file contents to the macOS clipboard with pbcopy."
@@ -145,6 +152,11 @@ enum ArchidektCommands {
 enum OrderDirection {
     Asc,
     Desc,
+}
+
+struct ExportRoleLookup {
+    roles_by_card: HashMap<String, Vec<CardRole>>,
+    warning: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -199,6 +211,7 @@ fn main() -> ExitCode {
                 page_size,
                 limit,
                 top,
+                role,
                 pbcopy,
             } => {
                 if *page == 0 {
@@ -346,6 +359,32 @@ fn main() -> ExitCode {
                         ranked_cards.sort_by(|left, right| {
                             right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0))
                         });
+                        let role_lookup_card_names = if role.is_some() {
+                            ranked_cards
+                                .iter()
+                                .map(|(card_name, _)| card_name.clone())
+                                .collect::<Vec<_>>()
+                        } else {
+                            let export_count =
+                                top.unwrap_or(ranked_cards.len()).min(ranked_cards.len());
+                            ranked_cards
+                                .iter()
+                                .take(export_count)
+                                .map(|(card_name, _)| card_name.clone())
+                                .collect::<Vec<_>>()
+                        };
+                        let role_lookup =
+                            load_export_roles(&role_lookup_card_names, role.is_some())?;
+                        let mut roles_by_card = role_lookup.roles_by_card;
+
+                        if let Some(role) = role {
+                            ranked_cards.retain(|(card_name, _)| {
+                                roles_by_card
+                                    .get(card_name)
+                                    .is_some_and(|roles| roles.contains(role))
+                            });
+                        }
+
                         let export_count =
                             top.unwrap_or(ranked_cards.len()).min(ranked_cards.len());
                         let export_card_names = ranked_cards
@@ -353,125 +392,8 @@ fn main() -> ExitCode {
                             .take(export_count)
                             .map(|(card_name, _)| card_name.clone())
                             .collect::<Vec<_>>();
-                        let mut roles_by_card = HashMap::new();
-                        let mut role_lookup_warning = None;
 
-                        if Path::new(CARD_DB_PATH).exists() {
-                            match Connection::open(CARD_DB_PATH) {
-                                Ok(conn) => {
-                                    let card_roles_exists = conn.query_row(
-                                        "
-                                        SELECT COUNT(*)
-                                        FROM sqlite_master
-                                        WHERE type = 'table'
-                                            AND name = 'card_roles'
-                                        ",
-                                        (),
-                                        |row| row.get::<_, i64>(0),
-                                    );
-
-                                    match card_roles_exists {
-                                        Ok(0) => {
-                                            role_lookup_warning = Some(
-                                                "card_roles table is missing; exporting without Moxfield tags"
-                                                    .to_string(),
-                                            );
-                                        }
-                                        Ok(_) => {
-                                            match conn.prepare(
-                                                "
-                                                SELECT role
-                                                FROM card_roles
-                                                WHERE name = ?1
-                                                ORDER BY role ASC
-                                                ",
-                                            ) {
-                                                Ok(mut stmt) => {
-                                                    for card_name in &export_card_names {
-                                                        let rows = stmt
-                                                            .query_map(params![card_name], |row| {
-                                                                row.get::<_, String>(0)
-                                                            });
-
-                                                        match rows {
-                                                            Ok(rows) => {
-                                                                let mut roles = Vec::new();
-                                                                for row in rows {
-                                                                    match row {
-                                                                        Ok(role_value) => {
-                                                                            let role = CardRole::from_db_value(&role_value);
-                                                                            match role {
-                                                                                Some(role) => roles.push(role),
-                                                                                None => {
-                                                                                    if role_lookup_warning.is_none() {
-                                                                                        role_lookup_warning = Some(format!(
-                                                                                            "unknown card role {role_value}; skipping unknown export tags"
-                                                                                        ));
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        Err(error) => {
-                                                                            if role_lookup_warning
-                                                                                .is_none()
-                                                                            {
-                                                                                role_lookup_warning = Some(format!(
-                                                                                    "failed to read card roles: {error}; exporting without Moxfield tags for affected cards"
-                                                                                ));
-                                                                            }
-                                                                            roles.clear();
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                }
-                                                                if !roles.is_empty() {
-                                                                    roles_by_card.insert(
-                                                                        card_name.clone(),
-                                                                        roles,
-                                                                    );
-                                                                }
-                                                            }
-                                                            Err(error) => {
-                                                                if role_lookup_warning.is_none() {
-                                                                    role_lookup_warning = Some(
-                                                                        format!(
-                                                                            "failed to query card roles: {error}; exporting without Moxfield tags"
-                                                                        ),
-                                                                    );
-                                                                }
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                Err(error) => {
-                                                    role_lookup_warning = Some(format!(
-                                                        "failed to prepare card role lookup: {error}; exporting without Moxfield tags"
-                                                    ));
-                                                }
-                                            }
-                                        }
-                                        Err(error) => {
-                                            role_lookup_warning = Some(format!(
-                                                "failed to inspect card_roles table: {error}; exporting without Moxfield tags"
-                                            ));
-                                        }
-                                    }
-                                }
-                                Err(error) => {
-                                    role_lookup_warning = Some(format!(
-                                        "failed to open local card database: {error}; exporting without Moxfield tags"
-                                    ));
-                                }
-                            }
-                        } else {
-                            role_lookup_warning = Some(
-                                "card.sqlite not found; exporting without Moxfield tags"
-                                    .to_string(),
-                            );
-                        }
-
-                        if let Some(warning) = role_lookup_warning {
+                        if let Some(warning) = role_lookup.warning {
                             eprintln!("Warning: {warning}");
                         }
 
@@ -487,6 +409,10 @@ fn main() -> ExitCode {
                         println!();
                         println!("Decks fetched: {decks_fetched}");
                         println!("Unique cards: {unique_card_count}");
+                        if let Some(role) = role {
+                            println!("Role filter: {}", role.as_str());
+                            println!("Matching unique cards: {}", ranked_cards.len());
+                        }
                         println!("Exported cards: {export_count}");
                         println!("Output file: {}", output_path.display());
                         if *pbcopy {
@@ -784,6 +710,147 @@ fn copy_file_to_pbcopy(path: &Path) -> Result<(), AppError> {
             "pbcopy exited with status {status}"
         )))
     }
+}
+
+fn load_export_roles(card_names: &[String], required: bool) -> Result<ExportRoleLookup, AppError> {
+    let mut roles_by_card = HashMap::new();
+
+    if !Path::new(CARD_DB_PATH).exists() {
+        if required {
+            return Err(AppError::InvalidSourceDeckFormat(
+                "card.sqlite not found; run sync before filtering by role".to_string(),
+            ));
+        }
+        return Ok(ExportRoleLookup {
+            roles_by_card,
+            warning: Some("card.sqlite not found; exporting without Moxfield tags".to_string()),
+        });
+    }
+
+    let conn = match Connection::open(CARD_DB_PATH) {
+        Ok(conn) => conn,
+        Err(error) => {
+            if required {
+                return Err(AppError::Sqlite(error));
+            }
+            return Ok(ExportRoleLookup {
+                roles_by_card,
+                warning: Some(format!(
+                    "failed to open local card database: {error}; exporting without Moxfield tags"
+                )),
+            });
+        }
+    };
+
+    let card_roles_exists = match conn.query_row(
+        "
+        SELECT COUNT(*)
+        FROM sqlite_master
+        WHERE type = 'table'
+            AND name = 'card_roles'
+        ",
+        (),
+        |row| row.get::<_, i64>(0),
+    ) {
+        Ok(card_roles_exists) => card_roles_exists,
+        Err(error) => {
+            if required {
+                return Err(AppError::Sqlite(error));
+            }
+            return Ok(ExportRoleLookup {
+                roles_by_card,
+                warning: Some(format!(
+                    "failed to inspect card_roles table: {error}; exporting without Moxfield tags"
+                )),
+            });
+        }
+    };
+    if card_roles_exists == 0 {
+        if required {
+            return Err(AppError::InvalidSourceDeckFormat(
+                "card_roles table is missing; run sync before filtering by role".to_string(),
+            ));
+        }
+        return Ok(ExportRoleLookup {
+            roles_by_card,
+            warning: Some(
+                "card_roles table is missing; exporting without Moxfield tags".to_string(),
+            ),
+        });
+    }
+
+    let mut role_lookup_warning = None;
+    let mut stmt = match conn.prepare(
+        "
+        SELECT role
+        FROM card_roles
+        WHERE name = ?1
+        ORDER BY role ASC
+        ",
+    ) {
+        Ok(stmt) => stmt,
+        Err(error) => {
+            if required {
+                return Err(AppError::Sqlite(error));
+            }
+            return Ok(ExportRoleLookup {
+                roles_by_card,
+                warning: Some(format!(
+                    "failed to prepare card role lookup: {error}; exporting without Moxfield tags"
+                )),
+            });
+        }
+    };
+
+    for card_name in card_names {
+        let rows = match stmt.query_map(params![card_name], |row| row.get::<_, String>(0)) {
+            Ok(rows) => rows,
+            Err(error) => {
+                if required {
+                    return Err(AppError::Sqlite(error));
+                }
+                role_lookup_warning = Some(format!(
+                    "failed to query card roles: {error}; exporting without Moxfield tags"
+                ));
+                break;
+            }
+        };
+        let mut roles = Vec::new();
+        for row in rows {
+            let role_value = match row {
+                Ok(role_value) => role_value,
+                Err(error) => {
+                    if required {
+                        return Err(AppError::Sqlite(error));
+                    }
+                    role_lookup_warning = Some(format!(
+                        "failed to read card roles: {error}; exporting without Moxfield tags for affected cards"
+                    ));
+                    roles.clear();
+                    break;
+                }
+            };
+            match CardRole::from_db_value(&role_value) {
+                Some(role) => roles.push(role),
+                None => {
+                    if role_lookup_warning.is_none() {
+                        role_lookup_warning = Some(format!(
+                            "unknown card role {role_value}; skipping unknown export tags"
+                        ));
+                    }
+                }
+            }
+        }
+
+        if !roles.is_empty() {
+            roles_by_card.insert(card_name.clone(), roles);
+        }
+    }
+
+    Ok(ExportRoleLookup {
+        roles_by_card,
+        warning: role_lookup_warning,
+    })
 }
 
 fn archidekt_order_by_value(order_by: &str, order_direction: OrderDirection) -> Option<String> {
