@@ -49,22 +49,23 @@ enum ArchidektCommands {
         url: String,
     },
     ExportUniqueCards {
-        #[arg(long)]
+        #[arg(short = 'c', long)]
         commander_name: Option<String>,
 
-        #[arg(long)]
+        #[arg(short = 'n', long)]
         name: Option<String>,
 
-        #[arg(long)]
+        #[arg(short = 'u', long)]
         owner_username: Option<String>,
 
-        #[arg(long, default_value_t = 3)]
+        #[arg(short = 'f', long, default_value_t = 3)]
         deck_format: u8,
 
-        #[arg(long)]
+        #[arg(short = 'b', long)]
         edh_bracket: Option<u8>,
 
         #[arg(
+            short = 'o',
             long,
             default_value = "updatedAt",
             allow_hyphen_values = true,
@@ -72,35 +73,36 @@ enum ArchidektCommands {
         )]
         order_by: String,
 
-        #[arg(long, value_enum, default_value = "desc")]
+        #[arg(short = 'r', long, value_enum, default_value = "desc")]
         order_direction: OrderDirection,
 
-        #[arg(long, default_value_t = 1)]
+        #[arg(short = 'p', long, default_value_t = 1)]
         page: usize,
 
-        #[arg(long)]
+        #[arg(short = 's', long)]
         page_size: Option<usize>,
 
-        #[arg(long, default_value_t = 10)]
+        #[arg(short = 'l', long, default_value_t = 10)]
         limit: usize,
     },
     ListDecks {
-        #[arg(long)]
+        #[arg(short = 'c', long)]
         commander_name: Option<String>,
 
-        #[arg(long)]
+        #[arg(short = 'n', long)]
         name: Option<String>,
 
-        #[arg(long)]
+        #[arg(short = 'u', long)]
         owner_username: Option<String>,
 
-        #[arg(long, default_value_t = 3)]
+        #[arg(short = 'f', long, default_value_t = 3)]
         deck_format: u8,
 
-        #[arg(long)]
+        #[arg(short = 'b', long)]
         edh_bracket: Option<u8>,
 
         #[arg(
+            short = 'o',
             long,
             default_value = "updatedAt",
             allow_hyphen_values = true,
@@ -108,16 +110,16 @@ enum ArchidektCommands {
         )]
         order_by: String,
 
-        #[arg(long, value_enum, default_value = "desc")]
+        #[arg(short = 'r', long, value_enum, default_value = "desc")]
         order_direction: OrderDirection,
 
-        #[arg(long, default_value_t = 1)]
+        #[arg(short = 'p', long, default_value_t = 1)]
         page: usize,
 
-        #[arg(long)]
+        #[arg(short = 's', long)]
         page_size: Option<usize>,
 
-        #[arg(long, default_value_t = 25)]
+        #[arg(short = 'l', long, default_value_t = 25)]
         limit: usize,
     },
 }
