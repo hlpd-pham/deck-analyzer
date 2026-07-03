@@ -33,12 +33,25 @@ fn create_card_lookup(conn: &Connection) {
             type_line TEXT,
             cmc REAL,
             mana_cost TEXT,
-            color_identity TEXT
+            color_identity TEXT,
+            oracle_text TEXT,
+            keywords TEXT
         )
         ",
         (),
     )
     .expect("failed to create card_lookup");
+    conn.execute(
+        "
+        CREATE TABLE card_roles (
+            name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            PRIMARY KEY(name, role)
+        )
+        ",
+        (),
+    )
+    .expect("failed to create card_roles");
 
     for (name, type_line, cmc, mana_cost, color_identity) in [
         ("Forest", "Basic Land - Forest", 0.0, "", "[\"G\"]"),
@@ -59,13 +72,25 @@ fn create_card_lookup(conn: &Connection) {
                 type_line,
                 cmc,
                 mana_cost,
-                color_identity
+                color_identity,
+                oracle_text,
+                keywords
             )
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            VALUES (?1, ?2, ?3, ?4, ?5, '', '[]')
             ",
             params![name, type_line, cmc, mana_cost, color_identity],
         )
         .expect("failed to insert card_lookup row");
+    }
+    for (name, role) in [("Llanowar Elves", "ramp"), ("Sol Ring", "ramp")] {
+        conn.execute(
+            "
+            INSERT INTO card_roles (name, role)
+            VALUES (?1, ?2)
+            ",
+            params![name, role],
+        )
+        .expect("failed to insert card_roles row");
     }
 }
 
@@ -219,6 +244,7 @@ fn analyzes_archidekt_source_without_persisting_deck() {
         "1: 3",
         "Creature: 2",
         "Artifact: 1",
+        "Ramp: 3",
     ] {
         assert!(
             stdout.contains(expected),

@@ -19,7 +19,14 @@ fn sync_upserts_color_fields_and_rebuilds_lookup() {
     let jsonl_path = dir.join("cards.jsonl");
     fs::write(
         &jsonl_path,
-        r#"{"id":"card-1","name":"Llanowar Elves","lang":"en","layout":"normal","mana_cost":"{G}","cmc":1.0,"type_line":"Creature - Elf Druid","colors":["G"],"color_identity":["G"],"set":"lea","collector_number":"1","rarity":"common"}"#,
+        r#"{"id":"card-1","name":"Llanowar Elves","lang":"en","layout":"normal","mana_cost":"{G}","cmc":1.0,"type_line":"Creature - Elf Druid","oracle_text":"{T}: Add {G}.","colors":["G"],"color_identity":["G"],"keywords":["Mana Ability"],"set":"lea","collector_number":"1","rarity":"common"}
+{"id":"card-2","name":"Divination","lang":"en","layout":"normal","mana_cost":"{2}{U}","cmc":3.0,"type_line":"Sorcery","oracle_text":"Draw two cards.","colors":["U"],"color_identity":["U"],"keywords":[],"set":"m10","collector_number":"2","rarity":"common"}
+{"id":"card-3","name":"Swords to Plowshares","lang":"en","layout":"normal","mana_cost":"{W}","cmc":1.0,"type_line":"Instant","oracle_text":"Exile target creature. Its controller gains life equal to its power.","colors":["W"],"color_identity":["W"],"keywords":[],"set":"sta","collector_number":"3","rarity":"uncommon"}
+{"id":"card-4","name":"Wrath of God","lang":"en","layout":"normal","mana_cost":"{2}{W}{W}","cmc":4.0,"type_line":"Sorcery","oracle_text":"Destroy all creatures. They can't be regenerated.","colors":["W"],"color_identity":["W"],"keywords":[],"set":"lea","collector_number":"4","rarity":"rare"}
+{"id":"card-5","name":"Demonic Tutor","lang":"en","layout":"normal","mana_cost":"{1}{B}","cmc":2.0,"type_line":"Sorcery","oracle_text":"Search your library for a card, put that card into your hand, then shuffle.","colors":["B"],"color_identity":["B"],"keywords":[],"set":"lea","collector_number":"5","rarity":"rare"}
+{"id":"card-6","name":"Heroic Intervention","lang":"en","layout":"normal","mana_cost":"{1}{G}","cmc":2.0,"type_line":"Instant","oracle_text":"Permanents you control gain hexproof and indestructible until end of turn.","colors":["G"],"color_identity":["G"],"keywords":[],"set":"aer","collector_number":"6","rarity":"rare"}
+{"id":"card-7","name":"Thassa's Oracle","lang":"en","layout":"normal","mana_cost":"{U}{U}","cmc":2.0,"type_line":"Creature - Merfolk Wizard","oracle_text":"When Thassa's Oracle enters, look at the top X cards of your library. If X is greater than or equal to the number of cards in your library, you win the game.","colors":["U"],"color_identity":["U"],"keywords":[],"set":"thb","collector_number":"7","rarity":"rare"}
+"#,
     )
     .expect("failed to write jsonl");
 
@@ -78,12 +85,47 @@ fn sync_upserts_color_fields_and_rebuilds_lookup() {
     assert_eq!(colors, "[\"G\"]");
     assert_eq!(color_identity, "[\"G\"]");
 
-    let lookup_color_identity: String = conn
-        .query_row(
-            "SELECT color_identity FROM card_lookup WHERE name = 'Llanowar Elves'",
+    let (lookup_color_identity, lookup_oracle_text, lookup_keywords): (String, String, String) =
+        conn.query_row(
+            "
+            SELECT color_identity, oracle_text, keywords
+            FROM card_lookup
+            WHERE name = 'Llanowar Elves'
+            ",
             (),
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("failed to query card lookup row");
     assert_eq!(lookup_color_identity, "[\"G\"]");
+    assert_eq!(lookup_oracle_text, "{T}: Add {G}.");
+    assert_eq!(lookup_keywords, "[\"Mana Ability\"]");
+
+    let role_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM card_roles", (), |row| row.get(0))
+        .expect("failed to count card roles");
+    assert_eq!(role_count, 7);
+
+    for (name, role) in [
+        ("Llanowar Elves", "ramp"),
+        ("Divination", "card_draw"),
+        ("Swords to Plowshares", "targeted_removal"),
+        ("Wrath of God", "board_wipe"),
+        ("Demonic Tutor", "tutor"),
+        ("Heroic Intervention", "protection"),
+        ("Thassa's Oracle", "win_condition"),
+    ] {
+        let role_exists: i64 = conn
+            .query_row(
+                "
+                SELECT COUNT(*)
+                FROM card_roles
+                WHERE name = ?1
+                    AND role = ?2
+                ",
+                (name, role),
+                |row| row.get(0),
+            )
+            .expect("failed to query card role");
+        assert_eq!(role_exists, 1, "expected {name} to have role {role}");
+    }
 }

@@ -64,7 +64,11 @@ enum ArchidektCommands {
         #[arg(long)]
         edh_bracket: Option<u8>,
 
-        #[arg(long, default_value = "-updatedAt")]
+        #[arg(
+            long,
+            default_value = "-updatedAt",
+            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Prefix with '-' for descending, for example -updatedAt."
+        )]
         order_by: String,
 
         #[arg(long, default_value_t = 1)]
@@ -92,7 +96,11 @@ enum ArchidektCommands {
         #[arg(long)]
         edh_bracket: Option<u8>,
 
-        #[arg(long, default_value = "-updatedAt")]
+        #[arg(
+            long,
+            default_value = "-updatedAt",
+            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Prefix with '-' for descending, for example -updatedAt."
+        )]
         order_by: String,
 
         #[arg(long, default_value_t = 1)]
@@ -544,4 +552,13 @@ fn print_deck_stats(stats: &DeckStats) {
     println!("Green: {}", stats.color_identity_counts.green);
     println!("Colorless: {}", stats.color_identity_counts.colorless);
     println!("Multicolor: {}", stats.color_identity_counts.multicolor);
+    println!();
+    println!("Roles:");
+    println!("Ramp: {}", stats.role_counts.ramp);
+    println!("Card draw: {}", stats.role_counts.card_draw);
+    println!("Targeted removal: {}", stats.role_counts.targeted_removal);
+    println!("Board wipe: {}", stats.role_counts.board_wipe);
+    println!("Tutor: {}", stats.role_counts.tutor);
+    println!("Protection: {}", stats.role_counts.protection);
+    println!("Win condition: {}", stats.role_counts.win_condition);
 }

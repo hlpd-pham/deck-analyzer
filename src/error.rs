@@ -10,6 +10,7 @@ pub enum AppError {
     InvalidQuantity { line_number: usize },
     InvalidSourceDeckFormat(String),
     MissingCardLookup,
+    MissingCardRoles,
     StaleCardLookup,
     CommanderValidationFailed,
 }
@@ -31,11 +32,11 @@ impl fmt::Display for AppError {
             AppError::MissingCardLookup => {
                 write!(f, "card_lookup table is missing; run sync before analyze")
             }
+            AppError::MissingCardRoles => {
+                write!(f, "card_roles table is missing; run sync before analyze")
+            }
             AppError::StaleCardLookup => {
-                write!(
-                    f,
-                    "card_lookup table is missing color identity data; run sync before analyze"
-                )
+                write!(f, "card_lookup table is stale; run sync before analyze")
             }
             AppError::CommanderValidationFailed => write!(f, "commander validation failed"),
         }

@@ -1,5 +1,6 @@
 use crate::decklist::parse_decklist;
 use crate::error::AppError;
+use crate::types::CardRole;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 
@@ -28,24 +29,38 @@ impl CardLookup for SqliteCardLookup<'_> {
             return Err(AppError::MissingCardLookup);
         }
 
-        let color_identity_column_exists: i64 = self.conn.query_row(
+        let role_support_columns: i64 = self.conn.query_row(
             "
             SELECT COUNT(*)
             FROM pragma_table_info('card_lookup')
-            WHERE name = 'color_identity'
+            WHERE name IN ('color_identity', 'oracle_text', 'keywords')
             ",
             (),
             |row| row.get(0),
         )?;
-        if color_identity_column_exists == 0 {
+        if role_support_columns != 3 {
             return Err(AppError::StaleCardLookup);
+        }
+
+        let card_roles_exists: i64 = self.conn.query_row(
+            "
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type = 'table'
+                AND name = 'card_roles'
+            ",
+            (),
+            |row| row.get(0),
+        )?;
+        if card_roles_exists == 0 {
+            return Err(AppError::MissingCardRoles);
         }
 
         Ok(())
     }
 
     fn lookup_card(&self, card_name: &str) -> Result<Option<CardInfo>, AppError> {
-        Ok(self
+        let card_info = self
             .conn
             .query_row(
                 "
@@ -59,10 +74,34 @@ impl CardLookup for SqliteCardLookup<'_> {
                         type_line: row.get(0)?,
                         cmc: row.get(1)?,
                         color_identity: row.get(2)?,
+                        roles: Vec::new(),
                     })
                 },
             )
-            .optional()?)
+            .optional()?;
+
+        let Some(mut card_info) = card_info else {
+            return Ok(None);
+        };
+
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT role
+            FROM card_roles
+            WHERE name = ?1
+            ORDER BY role ASC
+            ",
+        )?;
+        let rows = stmt.query_map(params![card_name], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let role = row?;
+            let Some(role) = CardRole::from_db_value(&role) else {
+                return Err(AppError::StaleCardLookup);
+            };
+            card_info.roles.push(role);
+        }
+
+        Ok(Some(card_info))
     }
 }
 
@@ -81,6 +120,7 @@ impl<L: CardLookup> Analyzer<L> {
         let mut mana_curve = [0usize; 8];
         let mut type_counts = TypeCounts::default();
         let mut color_identity_counts = ColorIdentityCounts::default();
+        let mut role_counts = RoleCounts::default();
 
         for deck_entry in parse_decklist(deck_text)? {
             total_cards += deck_entry.quantity;
@@ -100,6 +140,22 @@ impl<L: CardLookup> Analyzer<L> {
                             _ => return Err(AppError::StaleCardLookup),
                         },
                         _ => color_identity_counts.multicolor += deck_entry.quantity,
+                    }
+
+                    for role in &card_info.roles {
+                        match role {
+                            CardRole::Ramp => role_counts.ramp += deck_entry.quantity,
+                            CardRole::CardDraw => role_counts.card_draw += deck_entry.quantity,
+                            CardRole::TargetedRemoval => {
+                                role_counts.targeted_removal += deck_entry.quantity
+                            }
+                            CardRole::BoardWipe => role_counts.board_wipe += deck_entry.quantity,
+                            CardRole::Tutor => role_counts.tutor += deck_entry.quantity,
+                            CardRole::Protection => role_counts.protection += deck_entry.quantity,
+                            CardRole::WinCondition => {
+                                role_counts.win_condition += deck_entry.quantity
+                            }
+                        }
                     }
 
                     let type_line = card_info.type_line.unwrap_or_default();
@@ -162,6 +218,7 @@ impl<L: CardLookup> Analyzer<L> {
             mana_curve,
             type_counts,
             color_identity_counts,
+            role_counts,
         })
     }
 
@@ -261,6 +318,7 @@ pub struct CardInfo {
     pub type_line: Option<String>,
     pub cmc: Option<f64>,
     pub color_identity: Option<String>,
+    pub roles: Vec<CardRole>,
 }
 
 #[derive(Default)]
@@ -271,6 +329,7 @@ pub struct DeckStats {
     pub mana_curve: [usize; 8],
     pub type_counts: TypeCounts,
     pub color_identity_counts: ColorIdentityCounts,
+    pub role_counts: RoleCounts,
 }
 
 pub struct CommanderValidation {
@@ -304,6 +363,17 @@ pub struct ColorIdentityCounts {
     pub green: usize,
     pub colorless: usize,
     pub multicolor: usize,
+}
+
+#[derive(Default)]
+pub struct RoleCounts {
+    pub ramp: usize,
+    pub card_draw: usize,
+    pub targeted_removal: usize,
+    pub board_wipe: usize,
+    pub tutor: usize,
+    pub protection: usize,
+    pub win_condition: usize,
 }
 
 fn parse_color_identity(color_identity: Option<String>) -> Result<Vec<String>, AppError> {

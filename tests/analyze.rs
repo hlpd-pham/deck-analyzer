@@ -29,12 +29,25 @@ fn analyze_reports_lands_curve_types_and_missing_cards() {
             type_line TEXT,
             cmc REAL,
             mana_cost TEXT,
-            color_identity TEXT
+            color_identity TEXT,
+            oracle_text TEXT,
+            keywords TEXT
         )
         ",
         (),
     )
     .expect("failed to create card_lookup");
+    conn.execute(
+        "
+        CREATE TABLE card_roles (
+            name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            PRIMARY KEY(name, role)
+        )
+        ",
+        (),
+    )
+    .expect("failed to create card_roles");
 
     for (name, type_line, cmc, mana_cost, color_identity) in [
         ("Command Tower", "Land", 0.0, "", "[]"),
@@ -61,13 +74,30 @@ fn analyze_reports_lands_curve_types_and_missing_cards() {
                 type_line,
                 cmc,
                 mana_cost,
-                color_identity
+                color_identity,
+                oracle_text,
+                keywords
             )
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            VALUES (?1, ?2, ?3, ?4, ?5, '', '[]')
             ",
             params![name, type_line, cmc, mana_cost, color_identity],
         )
         .expect("failed to insert card lookup row");
+    }
+    for (name, role) in [
+        ("Llanowar Elves", "ramp"),
+        ("Solemn Simulacrum", "ramp"),
+        ("Boros Charm", "protection"),
+        ("Boros Charm", "targeted_removal"),
+    ] {
+        conn.execute(
+            "
+            INSERT INTO card_roles (name, role)
+            VALUES (?1, ?2)
+            ",
+            params![name, role],
+        )
+        .expect("failed to insert card role row");
     }
 
     let deck_path = dir.join("deck.txt");
@@ -113,6 +143,9 @@ fn analyze_reports_lands_curve_types_and_missing_cards() {
         "Green: 2",
         "Colorless: 2",
         "Multicolor: 1",
+        "Ramp: 3",
+        "Targeted removal: 1",
+        "Protection: 1",
     ] {
         assert!(
             stdout.contains(expected),
@@ -150,9 +183,45 @@ fn analyze_fails_when_card_lookup_is_stale() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr
-            .contains("card_lookup table is missing color identity data; run sync before analyze"),
+        stderr.contains("card_lookup table is stale; run sync before analyze"),
         "expected stale lookup error; got:\n{stderr}"
+    );
+}
+
+#[test]
+fn analyze_fails_when_card_roles_is_missing() {
+    let dir = temp_dir("missing-roles");
+    let conn = Connection::open(dir.join("card.sqlite")).expect("failed to open test db");
+    conn.execute(
+        "
+        CREATE TABLE card_lookup (
+            name TEXT PRIMARY KEY,
+            type_line TEXT,
+            cmc REAL,
+            mana_cost TEXT,
+            color_identity TEXT,
+            oracle_text TEXT,
+            keywords TEXT
+        )
+        ",
+        (),
+    )
+    .expect("failed to create card_lookup");
+    fs::write(dir.join("deck.txt"), "1 Command Tower\n").expect("failed to write deck file");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_deck-analyzer"))
+        .current_dir(&dir)
+        .arg("analyze")
+        .arg("deck.txt")
+        .output()
+        .expect("failed to run analyzer");
+
+    assert!(!output.status.success(), "analyzer unexpectedly succeeded");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("card_roles table is missing; run sync before analyze"),
+        "expected missing roles error; got:\n{stderr}"
     );
 }
 

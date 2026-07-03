@@ -1,3 +1,41 @@
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CardRole {
+    Ramp,
+    CardDraw,
+    TargetedRemoval,
+    BoardWipe,
+    Tutor,
+    Protection,
+    WinCondition,
+}
+
+impl CardRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CardRole::Ramp => "ramp",
+            CardRole::CardDraw => "card_draw",
+            CardRole::TargetedRemoval => "targeted_removal",
+            CardRole::BoardWipe => "board_wipe",
+            CardRole::Tutor => "tutor",
+            CardRole::Protection => "protection",
+            CardRole::WinCondition => "win_condition",
+        }
+    }
+
+    pub fn from_db_value(value: &str) -> Option<Self> {
+        match value {
+            "ramp" => Some(CardRole::Ramp),
+            "card_draw" => Some(CardRole::CardDraw),
+            "targeted_removal" => Some(CardRole::TargetedRemoval),
+            "board_wipe" => Some(CardRole::BoardWipe),
+            "tutor" => Some(CardRole::Tutor),
+            "protection" => Some(CardRole::Protection),
+            "win_condition" => Some(CardRole::WinCondition),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct ScryfallCard {
     pub id: Option<String>,
