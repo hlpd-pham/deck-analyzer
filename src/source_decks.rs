@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::types::CardRole;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -12,7 +13,15 @@ pub struct SourceDeck {
 pub struct SourceDeckCard {
     pub card_name: String,
     pub quantity: usize,
-    pub category: Option<String>,
+    pub categories: Vec<String>,
+}
+
+impl SourceDeckCard {
+    pub fn is_token(&self) -> bool {
+        self.categories.iter().any(|category| {
+            category.eq_ignore_ascii_case("token") || category.eq_ignore_ascii_case("tokens")
+        })
+    }
 }
 
 pub struct ArchidektDeckSearchQuery {
@@ -202,14 +211,10 @@ pub fn parse_archidekt_deck(json_text: &str, source_url: &str) -> Result<SourceD
 
     let mut cards = Vec::new();
     for card in response.cards {
-        let category = card
-            .categories
-            .and_then(|categories| categories.into_iter().next());
-
         cards.push(SourceDeckCard {
             card_name: card.card.oracle_card.name,
             quantity: card.quantity,
-            category,
+            categories: card.categories.unwrap_or_default(),
         });
     }
 
@@ -231,4 +236,16 @@ pub fn parse_archidekt_deck_search(json_text: &str) -> Result<ArchidektDeckSearc
     serde_json::from_str(json_text).map_err(|error| {
         AppError::InvalidSourceDeckFormat(format!("Archidekt deck search JSON is invalid: {error}"))
     })
+}
+
+pub fn format_moxfield_export_line(card_name: &str, roles: &[CardRole]) -> String {
+    let mut line = format!("1 {card_name}");
+    let mut sorted_roles = roles.to_vec();
+    sorted_roles.sort_by_key(|role| role.as_str());
+    sorted_roles.dedup();
+    for role in sorted_roles {
+        line.push_str(" #!");
+        line.push_str(role.as_str());
+    }
+    line
 }

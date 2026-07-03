@@ -4,8 +4,10 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use deck_analyzer::source_decks::{
-    ArchidektClient, ArchidektDeckSearchQuery, parse_archidekt_deck_search,
+    ArchidektClient, ArchidektDeckSearchQuery, format_moxfield_export_line, parse_archidekt_deck,
+    parse_archidekt_deck_search,
 };
+use deck_analyzer::types::CardRole;
 use rusqlite::{Connection, params};
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -206,6 +208,7 @@ fn archidekt_export_unique_cards_accepts_short_options() {
         .arg("asc")
         .arg("-t")
         .arg("100")
+        .arg("-y")
         .arg("-l")
         .arg("0")
         .output()
@@ -242,6 +245,40 @@ fn archidekt_export_unique_cards_rejects_zero_top_count() {
     assert!(
         stderr.contains("Archidekt export top count must be greater than 0"),
         "expected command to reject zero top count; got:\n{stderr}"
+    );
+}
+
+#[test]
+fn formats_many_moxfield_tags_on_one_card_line() {
+    let line = format_moxfield_export_line(
+        "Bloom Tender",
+        &[
+            CardRole::Ramp,
+            CardRole::Removal,
+            CardRole::CardDraw,
+            CardRole::Ramp,
+        ],
+    );
+    assert_eq!(line, "1 Bloom Tender #!card_draw #!ramp #!removal");
+    assert_eq!(line.lines().count(), 1);
+    assert_eq!(line.matches("Bloom Tender").count(), 1);
+}
+
+#[test]
+fn formats_moxfield_export_lines_without_tags() {
+    let line = format_moxfield_export_line("Command Tower", &[]);
+    assert_eq!(line, "1 Command Tower");
+}
+
+#[test]
+fn parses_legacy_role_strings() {
+    assert_eq!(
+        CardRole::from_db_value("targeted_removal"),
+        Some(CardRole::Removal)
+    );
+    assert_eq!(
+        CardRole::from_db_value("board_wipe"),
+        Some(CardRole::MassRemoval)
     );
 }
 
@@ -287,6 +324,35 @@ fn parses_archidekt_deck_search_results() {
     assert_eq!(deck.edh_bracket, Some(4));
     assert_eq!(deck.size, Some(100));
     assert_eq!(deck.view_count, Some(42));
+}
+
+#[test]
+fn parses_archidekt_deck_card_categories() {
+    let source_deck = parse_archidekt_deck(
+        r#"
+        {
+            "name": "Archidekt Fixture",
+            "cards": [
+                {
+                    "quantity": 1,
+                    "categories": ["Tokens"],
+                    "card": {
+                        "oracleCard": {
+                            "name": "Soldier Token"
+                        }
+                    }
+                }
+            ]
+        }
+        "#,
+        "file://archidekt.json",
+    )
+    .expect("deck JSON should parse");
+
+    assert_eq!(source_deck.cards.len(), 1);
+    assert_eq!(source_deck.cards[0].card_name, "Soldier Token");
+    assert_eq!(source_deck.cards[0].categories, ["Tokens"]);
+    assert!(source_deck.cards[0].is_token());
 }
 
 #[test]
