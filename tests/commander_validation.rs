@@ -14,26 +14,31 @@ impl CardLookup for TestLookup {
                 type_line: Some("Legendary Creature - Elf Warrior".to_string()),
                 cmc: Some(3.0),
                 color_identity: Some("[\"G\"]".to_string()),
+                roles: Vec::new(),
             },
             "Forest" => CardInfo {
                 type_line: Some("Basic Land - Forest".to_string()),
                 cmc: Some(0.0),
                 color_identity: Some("[\"G\"]".to_string()),
+                roles: Vec::new(),
             },
             "Sol Ring" => CardInfo {
                 type_line: Some("Artifact".to_string()),
                 cmc: Some(1.0),
                 color_identity: Some("[]".to_string()),
+                roles: Vec::new(),
             },
             "Llanowar Elves" => CardInfo {
                 type_line: Some("Creature - Elf Druid".to_string()),
                 cmc: Some(1.0),
                 color_identity: Some("[\"G\"]".to_string()),
+                roles: Vec::new(),
             },
             "Lightning Bolt" => CardInfo {
                 type_line: Some("Instant".to_string()),
                 cmc: Some(1.0),
                 color_identity: Some("[\"R\"]".to_string()),
+                roles: Vec::new(),
             },
             _ => return Ok(None),
         };

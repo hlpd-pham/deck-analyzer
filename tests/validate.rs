@@ -29,12 +29,25 @@ fn validate_prints_checklist_for_valid_deck() {
             type_line TEXT,
             cmc REAL,
             mana_cost TEXT,
-            color_identity TEXT
+            color_identity TEXT,
+            oracle_text TEXT,
+            keywords TEXT
         )
         ",
         (),
     )
     .expect("failed to create card_lookup");
+    conn.execute(
+        "
+        CREATE TABLE card_roles (
+            name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            PRIMARY KEY(name, role)
+        )
+        ",
+        (),
+    )
+    .expect("failed to create card_roles");
 
     for (name, type_line, cmc, mana_cost, color_identity) in [
         (
@@ -61,9 +74,11 @@ fn validate_prints_checklist_for_valid_deck() {
                 type_line,
                 cmc,
                 mana_cost,
-                color_identity
+                color_identity,
+                oracle_text,
+                keywords
             )
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            VALUES (?1, ?2, ?3, ?4, ?5, '', '[]')
             ",
             params![name, type_line, cmc, mana_cost, color_identity],
         )
@@ -146,8 +161,7 @@ fn validate_fails_when_card_lookup_is_stale() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr
-            .contains("card_lookup table is missing color identity data; run sync before analyze"),
+        stderr.contains("card_lookup table is stale; run sync before analyze"),
         "expected stale lookup error; got:\n{stderr}"
     );
 }

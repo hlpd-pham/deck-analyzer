@@ -544,4 +544,13 @@ fn print_deck_stats(stats: &DeckStats) {
     println!("Green: {}", stats.color_identity_counts.green);
     println!("Colorless: {}", stats.color_identity_counts.colorless);
     println!("Multicolor: {}", stats.color_identity_counts.multicolor);
+    println!();
+    println!("Roles:");
+    println!("Ramp: {}", stats.role_counts.ramp);
+    println!("Card draw: {}", stats.role_counts.card_draw);
+    println!("Targeted removal: {}", stats.role_counts.targeted_removal);
+    println!("Board wipe: {}", stats.role_counts.board_wipe);
+    println!("Tutor: {}", stats.role_counts.tutor);
+    println!("Protection: {}", stats.role_counts.protection);
+    println!("Win condition: {}", stats.role_counts.win_condition);
 }
