@@ -142,6 +142,30 @@ fn archidekt_deck_search_url_includes_verified_parameters() {
 }
 
 #[test]
+fn archidekt_list_decks_accepts_hyphenated_order_by_values() {
+    let output = Command::new(env!("CARGO_BIN_EXE_deck-analyzer"))
+        .arg("archidekt")
+        .arg("list-decks")
+        .arg("--order-by")
+        .arg("-viewCount")
+        .arg("--limit")
+        .arg("0")
+        .output()
+        .expect("failed to run archidekt deck search");
+
+    assert!(
+        !output.status.success(),
+        "deck search unexpectedly succeeded"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Archidekt deck search limit must be greater than 0"),
+        "expected command to parse order-by and fail on limit validation; got:\n{stderr}"
+    );
+}
+
+#[test]
 fn parses_archidekt_deck_search_results() {
     let search = parse_archidekt_deck_search(
         r#"

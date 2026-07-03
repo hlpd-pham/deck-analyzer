@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use deck_analyzer::analyzer::{Analyzer, DeckStats, SqliteCardLookup};
 use deck_analyzer::db::{CARD_DB_PATH, sync_cards_db};
 use deck_analyzer::error::AppError;
@@ -66,10 +66,14 @@ enum ArchidektCommands {
 
         #[arg(
             long,
-            default_value = "-updatedAt",
-            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Prefix with '-' for descending, for example -updatedAt."
+            default_value = "updatedAt",
+            allow_hyphen_values = true,
+            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Use --order-direction to choose ascending or descending. Legacy values like -viewCount are also accepted."
         )]
         order_by: String,
+
+        #[arg(long, value_enum, default_value = "desc")]
+        order_direction: OrderDirection,
 
         #[arg(long, default_value_t = 1)]
         page: usize,
@@ -98,10 +102,14 @@ enum ArchidektCommands {
 
         #[arg(
             long,
-            default_value = "-updatedAt",
-            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Prefix with '-' for descending, for example -updatedAt."
+            default_value = "updatedAt",
+            allow_hyphen_values = true,
+            long_help = "Sort key for Archidekt deck search. Known values: name, updatedAt, createdAt, viewCount, size, edhBracket. Use --order-direction to choose ascending or descending. Legacy values like -viewCount are also accepted."
         )]
         order_by: String,
+
+        #[arg(long, value_enum, default_value = "desc")]
+        order_direction: OrderDirection,
 
         #[arg(long, default_value_t = 1)]
         page: usize,
@@ -112,6 +120,12 @@ enum ArchidektCommands {
         #[arg(long, default_value_t = 25)]
         limit: usize,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum OrderDirection {
+    Asc,
+    Desc,
 }
 
 fn main() -> ExitCode {
@@ -161,6 +175,7 @@ fn main() -> ExitCode {
                 deck_format,
                 edh_bracket,
                 order_by,
+                order_direction,
                 page,
                 page_size,
                 limit,
@@ -186,7 +201,7 @@ fn main() -> ExitCode {
                             owner_username: owner_username.clone(),
                             deck_format: Some(*deck_format),
                             edh_bracket: *edh_bracket,
-                            order_by: Some(order_by.clone()),
+                            order_by: archidekt_order_by_value(order_by, *order_direction),
                             page: Some(*page),
                             page_size: *page_size,
                         };
@@ -312,6 +327,7 @@ fn main() -> ExitCode {
                 deck_format,
                 edh_bracket,
                 order_by,
+                order_direction,
                 page,
                 page_size,
                 limit,
@@ -336,7 +352,7 @@ fn main() -> ExitCode {
                         owner_username: owner_username.clone(),
                         deck_format: Some(*deck_format),
                         edh_bracket: *edh_bracket,
-                        order_by: Some(order_by.clone()),
+                        order_by: archidekt_order_by_value(order_by, *order_direction),
                         page: Some(*page),
                         page_size: *page_size,
                     };
@@ -513,6 +529,23 @@ fn main() -> ExitCode {
             eprintln!("Error: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn archidekt_order_by_value(order_by: &str, order_direction: OrderDirection) -> Option<String> {
+    let order_by = order_by.trim();
+    let order_by = order_by
+        .strip_prefix('-')
+        .or_else(|| order_by.strip_prefix('+'))
+        .unwrap_or(order_by);
+
+    if order_by.is_empty() {
+        return None;
+    }
+
+    match order_direction {
+        OrderDirection::Asc => Some(order_by.to_string()),
+        OrderDirection::Desc => Some(format!("-{order_by}")),
     }
 }
 
