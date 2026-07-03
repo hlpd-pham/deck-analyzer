@@ -1,5 +1,6 @@
 use crate::decklist::parse_decklist;
 use crate::error::AppError;
+use crate::types::CardRole;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 
@@ -93,7 +94,11 @@ impl CardLookup for SqliteCardLookup<'_> {
         )?;
         let rows = stmt.query_map(params![card_name], |row| row.get::<_, String>(0))?;
         for row in rows {
-            card_info.roles.push(row?);
+            let role = row?;
+            let Some(role) = CardRole::from_db_value(&role) else {
+                return Err(AppError::StaleCardLookup);
+            };
+            card_info.roles.push(role);
         }
 
         Ok(Some(card_info))
@@ -138,17 +143,18 @@ impl<L: CardLookup> Analyzer<L> {
                     }
 
                     for role in &card_info.roles {
-                        match role.as_str() {
-                            "ramp" => role_counts.ramp += deck_entry.quantity,
-                            "card_draw" => role_counts.card_draw += deck_entry.quantity,
-                            "targeted_removal" => {
+                        match role {
+                            CardRole::Ramp => role_counts.ramp += deck_entry.quantity,
+                            CardRole::CardDraw => role_counts.card_draw += deck_entry.quantity,
+                            CardRole::TargetedRemoval => {
                                 role_counts.targeted_removal += deck_entry.quantity
                             }
-                            "board_wipe" => role_counts.board_wipe += deck_entry.quantity,
-                            "tutor" => role_counts.tutor += deck_entry.quantity,
-                            "protection" => role_counts.protection += deck_entry.quantity,
-                            "win_condition" => role_counts.win_condition += deck_entry.quantity,
-                            _ => return Err(AppError::StaleCardLookup),
+                            CardRole::BoardWipe => role_counts.board_wipe += deck_entry.quantity,
+                            CardRole::Tutor => role_counts.tutor += deck_entry.quantity,
+                            CardRole::Protection => role_counts.protection += deck_entry.quantity,
+                            CardRole::WinCondition => {
+                                role_counts.win_condition += deck_entry.quantity
+                            }
                         }
                     }
 
@@ -312,7 +318,7 @@ pub struct CardInfo {
     pub type_line: Option<String>,
     pub cmc: Option<f64>,
     pub color_identity: Option<String>,
-    pub roles: Vec<String>,
+    pub roles: Vec<CardRole>,
 }
 
 #[derive(Default)]

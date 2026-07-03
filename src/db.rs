@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::types::ScryfallCard;
+use crate::types::{CardRole, ScryfallCard};
 use rusqlite::{Connection, params};
 use std::{
     fs::File,
@@ -261,7 +261,7 @@ ON CONFLICT(id) DO UPDATE SET
             INSERT INTO card_roles (name, role)
             VALUES (?1, ?2)
             ",
-            params![name, role],
+            params![name, role.as_str()],
         )?;
         role_count += 1;
     }
@@ -276,7 +276,7 @@ fn roles_for_card(
     type_line: Option<&str>,
     oracle_text: Option<&str>,
     _keywords: Option<&str>,
-) -> Vec<&'static str> {
+) -> Vec<CardRole> {
     let type_line = type_line.unwrap_or("");
     let is_land = type_line.contains("Land");
     let text = oracle_text.unwrap_or("").to_lowercase();
@@ -297,7 +297,7 @@ fn roles_for_card(
             || text.contains("add x mana")
             || (searches_land && puts_land_somewhere))
     {
-        roles.push("ramp");
+        roles.push(CardRole::Ramp);
     }
 
     if text.contains("draw a card")
@@ -308,7 +308,7 @@ fn roles_for_card(
         || text.contains("draw that many cards")
         || text.contains("draw cards")
     {
-        roles.push("card_draw");
+        roles.push(CardRole::CardDraw);
     }
 
     if text.contains("destroy all")
@@ -319,7 +319,7 @@ fn roles_for_card(
         || text.contains("each creature gets -")
         || text.contains("damage to each creature")
     {
-        roles.push("board_wipe");
+        roles.push(CardRole::BoardWipe);
     }
 
     let has_target = text.contains("target ");
@@ -331,7 +331,7 @@ fn roles_for_card(
             || text.contains("target opponent sacrifices")
             || text.contains("target player sacrifices"))
     {
-        roles.push("targeted_removal");
+        roles.push(CardRole::TargetedRemoval);
     }
 
     let searches_nonland_card = text.contains("nonland card")
@@ -345,7 +345,7 @@ fn roles_for_card(
         || text.contains("for any card");
     let tutor_is_not_land_only = !searches_land || text.contains("nonland");
     if searches_library && searches_nonland_card && tutor_is_not_land_only {
-        roles.push("tutor");
+        roles.push(CardRole::Tutor);
     }
 
     if text.contains("gain indestructible")
@@ -358,7 +358,7 @@ fn roles_for_card(
         || text.contains("phase out")
         || text.contains("phases out")
     {
-        roles.push("protection");
+        roles.push(CardRole::Protection);
     }
 
     if text.contains("win the game")
@@ -366,7 +366,7 @@ fn roles_for_card(
         || text.contains("opponents lose the game")
         || text.contains("that player loses the game")
     {
-        roles.push("win_condition");
+        roles.push(CardRole::WinCondition);
     }
 
     roles

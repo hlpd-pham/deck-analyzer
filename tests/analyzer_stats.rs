@@ -1,5 +1,6 @@
 use deck_analyzer::analyzer::{Analyzer, CardInfo, CardLookup};
 use deck_analyzer::error::AppError;
+use deck_analyzer::types::CardRole;
 
 struct TestLookup;
 
@@ -20,13 +21,13 @@ impl CardLookup for TestLookup {
                 type_line: Some("Creature - Elf Druid".to_string()),
                 cmc: Some(1.0),
                 color_identity: Some("[\"G\"]".to_string()),
-                roles: vec!["ramp".to_string()],
+                roles: vec![CardRole::Ramp],
             },
             "Boros Charm" => CardInfo {
                 type_line: Some("Instant".to_string()),
                 cmc: Some(2.0),
                 color_identity: Some("[\"R\",\"W\"]".to_string()),
-                roles: vec!["protection".to_string()],
+                roles: vec![CardRole::Protection],
             },
             _ => return Ok(None),
         };
