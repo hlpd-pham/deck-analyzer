@@ -208,6 +208,7 @@ fn archidekt_export_unique_cards_accepts_short_options() {
         .arg("asc")
         .arg("-t")
         .arg("100")
+        .arg("-y")
         .arg("-l")
         .arg("0")
         .output()

@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -94,6 +94,13 @@ enum ArchidektCommands {
             long_help = "Only export the top N cards ranked by how many fetched decks include each card. Omit to export all included cards."
         )]
         top: Option<usize>,
+
+        #[arg(
+            short = 'y',
+            long = "pbcopy",
+            long_help = "Copy the generated export file contents to the macOS clipboard with pbcopy."
+        )]
+        pbcopy: bool,
     },
     ListDecks {
         #[arg(short = 'c', long)]
@@ -192,6 +199,7 @@ fn main() -> ExitCode {
                 page_size,
                 limit,
                 top,
+                pbcopy,
             } => {
                 if *page == 0 {
                     Err(AppError::InvalidSourceDeckFormat(
@@ -469,12 +477,18 @@ fn main() -> ExitCode {
                             let line = format_moxfield_export_line(&card_name, &roles);
                             writeln!(output_file, "{line}")?;
                         }
+                        if *pbcopy {
+                            copy_file_to_pbcopy(&output_path)?;
+                        }
 
                         println!();
                         println!("Decks fetched: {decks_fetched}");
                         println!("Unique cards: {unique_card_count}");
                         println!("Exported cards: {export_count}");
                         println!("Output file: {}", output_path.display());
+                        if *pbcopy {
+                            println!("Copied to clipboard: yes");
+                        }
 
                         Ok(())
                     })()
@@ -744,6 +758,28 @@ fn search_archidekt_decks_with_backoff(
             }
             Err(error) => break Err(error),
         }
+    }
+}
+
+fn copy_file_to_pbcopy(path: &Path) -> Result<(), AppError> {
+    let contents = std::fs::read(path)?;
+    let mut child = Command::new("pbcopy").stdin(Stdio::piped()).spawn()?;
+    {
+        let Some(mut stdin) = child.stdin.take() else {
+            return Err(AppError::InvalidSourceDeckFormat(
+                "failed to open pbcopy stdin".to_string(),
+            ));
+        };
+        stdin.write_all(&contents)?;
+    }
+
+    let status = child.wait()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(AppError::InvalidSourceDeckFormat(format!(
+            "pbcopy exited with status {status}"
+        )))
     }
 }
 
