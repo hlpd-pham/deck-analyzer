@@ -2,10 +2,12 @@ use clap::{Parser, Subcommand, ValueEnum};
 use deck_analyzer::analyzer::{Analyzer, DeckStats, SqliteCardLookup};
 use deck_analyzer::db::{CARD_DB_PATH, sync_cards_db};
 use deck_analyzer::error::AppError;
-use deck_analyzer::source_decks::{ArchidektClient, ArchidektDeckSearchQuery};
+use deck_analyzer::source_decks::{
+    ArchidektClient, ArchidektDeckSearchPage, ArchidektDeckSearchQuery,
+};
 use reqwest::StatusCode;
 use rusqlite::Connection;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -84,6 +86,13 @@ enum ArchidektCommands {
 
         #[arg(short = 'l', long, default_value_t = 10)]
         limit: usize,
+
+        #[arg(
+            short = 't',
+            long,
+            long_help = "Only export the top N cards ranked by how many fetched decks include each card. Omit to export all included cards."
+        )]
+        top: Option<usize>,
     },
     ListDecks {
         #[arg(short = 'c', long)]
@@ -181,6 +190,7 @@ fn main() -> ExitCode {
                 page,
                 page_size,
                 limit,
+                top,
             } => {
                 if *page == 0 {
                     Err(AppError::InvalidSourceDeckFormat(
@@ -194,10 +204,14 @@ fn main() -> ExitCode {
                     Err(AppError::InvalidSourceDeckFormat(
                         "Archidekt export limit must be greater than 0".to_string(),
                     ))
+                } else if top == &Some(0) {
+                    Err(AppError::InvalidSourceDeckFormat(
+                        "Archidekt export top count must be greater than 0".to_string(),
+                    ))
                 } else {
                     (|| {
                         let archidekt = ArchidektClient;
-                        let query = ArchidektDeckSearchQuery {
+                        let mut query = ArchidektDeckSearchQuery {
                             commander_name: commander_name.clone(),
                             name: name.clone(),
                             owner_username: owner_username.clone(),
@@ -209,44 +223,47 @@ fn main() -> ExitCode {
                         };
 
                         let api_url = archidekt.deck_search_api_url(&query)?;
-                        let mut attempt = 1;
-                        let mut rate_limit_backoff = Duration::from_secs(2);
-                        let search = loop {
-                            match archidekt.search_decks(&query) {
-                                Ok(search) => break Ok(search),
-                                Err(AppError::Http(error))
-                                    if error.status() == Some(StatusCode::TOO_MANY_REQUESTS)
-                                        && attempt < 6 =>
-                                {
-                                    eprintln!(
-                                        "Archidekt rate limited deck search. Waiting {} seconds before retry {}.",
-                                        rate_limit_backoff.as_secs(),
-                                        attempt + 1
-                                    );
-                                    sleep(rate_limit_backoff);
-                                    rate_limit_backoff = std::cmp::min(
-                                        rate_limit_backoff.saturating_mul(2),
-                                        Duration::from_secs(64),
-                                    );
-                                    attempt += 1;
-                                }
-                                Err(error) => break Err(error),
+                        let mut current_page = *page;
+                        let mut selected_decks = Vec::new();
+                        let mut search_match_count = 0;
+                        let mut search_pages_fetched = 0;
+                        let mut search_results_returned = 0;
+                        while selected_decks.len() < *limit {
+                            query.page = Some(current_page);
+                            let search = search_archidekt_decks_with_backoff(&archidekt, &query)?;
+                            if search_pages_fetched == 0 {
+                                search_match_count = search.count;
                             }
-                        }?;
-                        let deck_count = search.results.len().min(*limit);
+
+                            search_pages_fetched += 1;
+                            let returned_count = search.results.len();
+                            let has_next = search.next.is_some();
+                            search_results_returned += returned_count;
+
+                            let remaining_decks = *limit - selected_decks.len();
+                            selected_decks.extend(search.results.into_iter().take(remaining_decks));
+
+                            if selected_decks.len() >= *limit || !has_next || returned_count == 0 {
+                                break;
+                            }
+                            current_page += 1;
+                        }
+
+                        let deck_count = selected_decks.len();
                         println!("Archidekt unique card export");
                         println!("Query URL: {api_url}");
-                        println!("Matches: {}", search.count);
-                        println!("Returned by API: {}", search.results.len());
+                        println!("Matches: {search_match_count}");
+                        println!("Search pages fetched: {search_pages_fetched}");
+                        println!("Returned by API: {search_results_returned}");
                         println!("Decks selected: {deck_count}");
                         println!("Detail request interval: 2 seconds");
                         println!();
 
-                        let mut card_names = HashSet::new();
+                        let mut card_counts: HashMap<String, usize> = HashMap::new();
                         let mut decks_fetched = 0;
                         let mut next_detail_request_at = Instant::now();
 
-                        for (deck_index, deck) in search.results.iter().take(*limit).enumerate() {
+                        for (deck_index, deck) in selected_decks.iter().enumerate() {
                             println!(
                                 "Fetching deck {}/{}: {} | {}",
                                 deck_index + 1,
@@ -290,8 +307,13 @@ fn main() -> ExitCode {
                             }?;
 
                             decks_fetched += 1;
+                            let mut deck_card_names = HashSet::new();
                             for card in source_deck.cards {
-                                card_names.insert(card.card_name);
+                                deck_card_names.insert(card.card_name);
+                            }
+                            for card_name in deck_card_names {
+                                let count = card_counts.entry(card_name).or_insert(0);
+                                *count += 1;
                             }
                         }
 
@@ -307,15 +329,21 @@ fn main() -> ExitCode {
                             "/tmp/deck-analyzer-archidekt-unique-cards-{timestamp}.txt"
                         ));
                         let mut output_file = File::create(&output_path)?;
-                        let mut sorted_card_names = card_names.into_iter().collect::<Vec<_>>();
-                        sorted_card_names.sort();
-                        for card_name in &sorted_card_names {
+                        let unique_card_count = card_counts.len();
+                        let mut ranked_cards = card_counts.into_iter().collect::<Vec<_>>();
+                        ranked_cards.sort_by(|left, right| {
+                            right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0))
+                        });
+                        let export_count =
+                            top.unwrap_or(ranked_cards.len()).min(ranked_cards.len());
+                        for (card_name, _) in ranked_cards.iter().take(export_count) {
                             writeln!(output_file, "1 {card_name}")?;
                         }
 
                         println!();
                         println!("Decks fetched: {decks_fetched}");
-                        println!("Unique cards: {}", sorted_card_names.len());
+                        println!("Unique cards: {unique_card_count}");
+                        println!("Exported cards: {export_count}");
                         println!("Output file: {}", output_path.display());
 
                         Ok(())
@@ -347,70 +375,96 @@ fn main() -> ExitCode {
                         "Archidekt deck search limit must be greater than 0".to_string(),
                     ))
                 } else {
-                    let archidekt = ArchidektClient;
-                    let query = ArchidektDeckSearchQuery {
-                        commander_name: commander_name.clone(),
-                        name: name.clone(),
-                        owner_username: owner_username.clone(),
-                        deck_format: Some(*deck_format),
-                        edh_bracket: *edh_bracket,
-                        order_by: archidekt_order_by_value(order_by, *order_direction),
-                        page: Some(*page),
-                        page_size: *page_size,
-                    };
+                    (|| {
+                        let archidekt = ArchidektClient;
+                        let mut query = ArchidektDeckSearchQuery {
+                            commander_name: commander_name.clone(),
+                            name: name.clone(),
+                            owner_username: owner_username.clone(),
+                            deck_format: Some(*deck_format),
+                            edh_bracket: *edh_bracket,
+                            order_by: archidekt_order_by_value(order_by, *order_direction),
+                            page: Some(*page),
+                            page_size: *page_size,
+                        };
 
-                    match archidekt.deck_search_api_url(&query) {
-                        Ok(api_url) => match archidekt.search_decks(&query) {
-                            Ok(search) => {
-                                println!("Archidekt deck search");
-                                println!("Query URL: {api_url}");
-                                println!("Matches: {}", search.count);
-                                println!("Returned by API: {}", search.results.len());
-                                println!("Displayed: {}", search.results.len().min(*limit));
-                                if let Some(next) = &search.next {
-                                    println!("Next page: {next}");
-                                }
-                                println!();
-
-                                for deck in search.results.iter().take(*limit) {
-                                    let deck_format = deck
-                                        .deck_format
-                                        .map(|value| value.to_string())
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let edh_bracket = deck
-                                        .edh_bracket
-                                        .map(|value| value.to_string())
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let size = deck
-                                        .size
-                                        .map(|value| value.to_string())
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let view_count = deck
-                                        .view_count
-                                        .map(|value| value.to_string())
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let updated_at = deck.updated_at.as_deref().unwrap_or("-");
-
-                                    println!(
-                                        "{} | {} | owner={} | format={} | bracket={} | size={} | views={} | updated={} | https://archidekt.com/decks/{}",
-                                        deck.id,
-                                        deck.name,
-                                        deck.owner.username,
-                                        deck_format,
-                                        edh_bracket,
-                                        size,
-                                        view_count,
-                                        updated_at,
-                                        deck.id
-                                    );
-                                }
-
-                                Ok(())
+                        let api_url = archidekt.deck_search_api_url(&query)?;
+                        let mut current_page = *page;
+                        let mut selected_decks = Vec::new();
+                        let mut search_match_count = 0;
+                        let mut search_pages_fetched = 0;
+                        let mut search_results_returned = 0;
+                        let mut next_page_url = None;
+                        while selected_decks.len() < *limit {
+                            query.page = Some(current_page);
+                            let search = search_archidekt_decks_with_backoff(&archidekt, &query)?;
+                            if search_pages_fetched == 0 {
+                                search_match_count = search.count;
                             }
-                            Err(error) => Err(error),
-                        },
-                        Err(error) => Err(error),
-                    }
+
+                            search_pages_fetched += 1;
+                            let returned_count = search.results.len();
+                            let has_next = search.next.is_some();
+                            next_page_url = search.next.clone();
+                            search_results_returned += returned_count;
+
+                            let remaining_decks = *limit - selected_decks.len();
+                            selected_decks.extend(search.results.into_iter().take(remaining_decks));
+
+                            if selected_decks.len() >= *limit || !has_next || returned_count == 0 {
+                                break;
+                            }
+                            current_page += 1;
+                        }
+
+                        println!("Archidekt deck search");
+                        println!("Query URL: {api_url}");
+                        println!("Matches: {search_match_count}");
+                        println!("Search pages fetched: {search_pages_fetched}");
+                        println!("Returned by API: {search_results_returned}");
+                        println!("Displayed: {}", selected_decks.len());
+                        if selected_decks.len() >= *limit
+                            && let Some(next) = &next_page_url
+                        {
+                            println!("Next page: {next}");
+                        }
+                        println!();
+
+                        for deck in &selected_decks {
+                            let deck_format = deck
+                                .deck_format
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "-".to_string());
+                            let edh_bracket = deck
+                                .edh_bracket
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "-".to_string());
+                            let size = deck
+                                .size
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "-".to_string());
+                            let view_count = deck
+                                .view_count
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "-".to_string());
+                            let updated_at = deck.updated_at.as_deref().unwrap_or("-");
+
+                            println!(
+                                "{} | {} | owner={} | format={} | bracket={} | size={} | views={} | updated={} | https://archidekt.com/decks/{}",
+                                deck.id,
+                                deck.name,
+                                deck.owner.username,
+                                deck_format,
+                                edh_bracket,
+                                size,
+                                view_count,
+                                updated_at,
+                                deck.id
+                            );
+                        }
+
+                        Ok(())
+                    })()
                 }
             }
         };
@@ -530,6 +584,35 @@ fn main() -> ExitCode {
         Err(error) => {
             eprintln!("Error: {error}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+fn search_archidekt_decks_with_backoff(
+    archidekt: &ArchidektClient,
+    query: &ArchidektDeckSearchQuery,
+) -> Result<ArchidektDeckSearchPage, AppError> {
+    let mut attempt = 1;
+    let mut rate_limit_backoff = Duration::from_secs(2);
+    loop {
+        match archidekt.search_decks(query) {
+            Ok(search) => break Ok(search),
+            Err(AppError::Http(error))
+                if error.status() == Some(StatusCode::TOO_MANY_REQUESTS) && attempt < 6 =>
+            {
+                eprintln!(
+                    "Archidekt rate limited deck search. Waiting {} seconds before retry {}.",
+                    rate_limit_backoff.as_secs(),
+                    attempt + 1
+                );
+                sleep(rate_limit_backoff);
+                rate_limit_backoff = std::cmp::min(
+                    rate_limit_backoff.saturating_mul(2),
+                    Duration::from_secs(64),
+                );
+                attempt += 1;
+            }
+            Err(error) => break Err(error),
         }
     }
 }
