@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use deck_analyzer::source_decks::ArchidektClient;
+use deck_analyzer::source_decks::{
+    ArchidektClient, ArchidektDeckSearchQuery, parse_archidekt_deck_search,
+};
 use rusqlite::{Connection, params};
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -82,6 +84,83 @@ fn archidekt_page_urls_resolve_to_api_urls() {
 }
 
 #[test]
+fn archidekt_deck_search_url_includes_verified_parameters() {
+    let archidekt = ArchidektClient;
+    let api_url = archidekt
+        .deck_search_api_url(&ArchidektDeckSearchQuery {
+            commander_name: Some("Sheoldred, the Apocalypse".to_string()),
+            name: Some("mono black".to_string()),
+            owner_username: Some("example-user".to_string()),
+            deck_format: Some(3),
+            edh_bracket: Some(4),
+            order_by: Some("-updatedAt".to_string()),
+            page: Some(2),
+            page_size: Some(10),
+        })
+        .expect("search url should build");
+
+    for expected in [
+        "commanderName=Sheoldred%2C+the+Apocalypse",
+        "name=mono+black",
+        "ownerUsername=example-user",
+        "deckFormat=3",
+        "edhBracket=4",
+        "orderBy=-updatedAt",
+        "page=2",
+        "pageSize=10",
+    ] {
+        assert!(
+            api_url.contains(expected),
+            "expected search url to contain {expected:?}; got {api_url}"
+        );
+    }
+}
+
+#[test]
+fn parses_archidekt_deck_search_results() {
+    let search = parse_archidekt_deck_search(
+        r#"
+        {
+            "count": 425,
+            "next": "https://archidekt.com/api/decks/v3/?page=2",
+            "results": [
+                {
+                    "id": 8524795,
+                    "name": "Apocalyptic",
+                    "size": 100,
+                    "updatedAt": "2026-07-02T23:36:11.381739Z",
+                    "createdAt": "2026-07-01T23:36:11.381739Z",
+                    "deckFormat": 3,
+                    "edhBracket": 4,
+                    "viewCount": 42,
+                    "owner": {
+                        "username": "El_Deadpool"
+                    }
+                }
+            ]
+        }
+        "#,
+    )
+    .expect("search JSON should parse");
+
+    assert_eq!(search.count, 425);
+    assert_eq!(
+        search.next.as_deref(),
+        Some("https://archidekt.com/api/decks/v3/?page=2")
+    );
+    assert_eq!(search.results.len(), 1);
+
+    let deck = &search.results[0];
+    assert_eq!(deck.id, 8524795);
+    assert_eq!(deck.name, "Apocalyptic");
+    assert_eq!(deck.owner.username, "El_Deadpool");
+    assert_eq!(deck.deck_format, Some(3));
+    assert_eq!(deck.edh_bracket, Some(4));
+    assert_eq!(deck.size, Some(100));
+    assert_eq!(deck.view_count, Some(42));
+}
+
+#[test]
 fn analyzes_archidekt_source_without_persisting_deck() {
     let dir = temp_dir("archidekt");
     let conn = Connection::open(dir.join("card.sqlite")).expect("failed to open db");
@@ -120,8 +199,8 @@ fn analyzes_archidekt_source_without_persisting_deck() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_deck-analyzer"))
         .current_dir(&dir)
-        .arg("analyze-source")
         .arg("archidekt")
+        .arg("analyze")
         .arg(file_url(&fixture_path))
         .output()
         .expect("failed to run archidekt source analysis");
