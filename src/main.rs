@@ -310,7 +310,7 @@ fn main() -> ExitCode {
                         let mut sorted_card_names = card_names.into_iter().collect::<Vec<_>>();
                         sorted_card_names.sort();
                         for card_name in &sorted_card_names {
-                            writeln!(output_file, "{card_name}")?;
+                            writeln!(output_file, "1 {card_name}")?;
                         }
 
                         println!();
