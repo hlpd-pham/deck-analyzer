@@ -248,12 +248,19 @@ fn archidekt_export_unique_cards_rejects_zero_top_count() {
 }
 
 #[test]
-fn formats_moxfield_export_lines_with_sorted_tags() {
+fn formats_many_moxfield_tags_on_one_card_line() {
     let line = format_moxfield_export_line(
-        "Swords to Plowshares",
-        &[CardRole::Ramp, CardRole::Removal, CardRole::CardDraw],
+        "Bloom Tender",
+        &[
+            CardRole::Ramp,
+            CardRole::Removal,
+            CardRole::CardDraw,
+            CardRole::Ramp,
+        ],
     );
-    assert_eq!(line, "1 Swords to Plowshares #!card_draw #!ramp #!removal");
+    assert_eq!(line, "1 Bloom Tender #!card_draw #!ramp #!removal");
+    assert_eq!(line.lines().count(), 1);
+    assert_eq!(line.matches("Bloom Tender").count(), 1);
 }
 
 #[test]
